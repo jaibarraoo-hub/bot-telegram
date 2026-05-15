@@ -52,7 +52,9 @@ def procesar(cid, archivo):
 
         df = pd.read_excel(archivo, engine="openpyxl")
 
-        # normalizar columnas
+        # =========================
+        # NORMALIZAR COLUMNAS
+        # =========================
         df.columns = (
             df.columns
             .astype(str)
@@ -60,9 +62,6 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
-        # =========================
-        # COLUMNAS
-        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
@@ -153,10 +152,9 @@ def procesar(cid, archivo):
         send_msg(cid, msg)
 
         # =========================
-        # 📊 DASHBOARD 2 HOJAS
+        # DASHBOARD 2 HOJAS PRO
         # =========================
         centros = rep[c_centro].dropna().unique()
-
         mid = math.ceil(len(centros) / 2)
 
         paginas = [
@@ -171,6 +169,8 @@ def procesar(cid, archivo):
             cols = 2
             rows = math.ceil(len(grupo) / cols)
 
+            plt.style.use("seaborn-v0_8-whitegrid")
+
             plt.figure(figsize=(14, rows * 4))
 
             for i, centro in enumerate(grupo, 1):
@@ -178,28 +178,74 @@ def procesar(cid, archivo):
                 temp = rep[rep[c_centro] == centro].copy()
                 temp = temp.sort_values("fecha")
 
-                plt.subplot(rows, cols, i)
+                ax = plt.subplot(rows, cols, i)
 
-                plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
-                plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
+                ax.set_facecolor("#f7f9fc")
 
-                # etiquetas
+                # =========================
+                # LINEAS PRO
+                # =========================
+                ax.plot(
+                    temp["fecha"],
+                    temp["lanzadas"],
+                    marker="o",
+                    linewidth=2.5,
+                    color="#1f77b4",
+                    markersize=5,
+                    label="Lanzadas"
+                )
+
+                ax.plot(
+                    temp["fecha"],
+                    temp["cerradas"],
+                    marker="o",
+                    linewidth=2.5,
+                    color="#2ca02c",
+                    markersize=5,
+                    label="Cerradas"
+                )
+
+                # =========================
+                # ETIQUETAS PRO
+                # =========================
                 for x, y in zip(temp["fecha"], temp["lanzadas"]):
-                    plt.text(x, y, str(y), fontsize=7, ha="center", va="bottom")
+                    ax.text(
+                        x,
+                        y + 0.2,
+                        str(y),
+                        fontsize=7,
+                        ha="center",
+                        color="#1f77b4"
+                    )
 
                 for x, y in zip(temp["fecha"], temp["cerradas"]):
-                    plt.text(x, y, str(y), fontsize=7, ha="center", va="top")
+                    ax.text(
+                        x,
+                        y - 0.3,
+                        str(y),
+                        fontsize=7,
+                        ha="center",
+                        color="#2ca02c"
+                    )
 
-                plt.title(centro)
-                plt.xticks(rotation=45)
-                plt.grid(True)
-                plt.legend()
+                # =========================
+                # TITULO PRO
+                # =========================
+                ax.set_title(
+                    f"📊 Dashboard Operativo - {centro}",
+                    fontsize=11,
+                    fontweight="bold"
+                )
+
+                ax.tick_params(axis='x', rotation=45)
+                ax.grid(True, alpha=0.3)
+                ax.legend()
 
             plt.tight_layout()
 
             img = f"dashboard_{pagina}.png"
 
-            plt.savefig(img)
+            plt.savefig(img, dpi=150)
             plt.close()
 
             send_photo(cid, img)
@@ -217,7 +263,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("BOT DASHBOARD 2 HOJAS ACTIVO")
+    print("🚀 BOT PRO DASHBOARD ACTIVO")
 
     while True:
 
