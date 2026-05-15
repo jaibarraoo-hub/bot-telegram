@@ -13,7 +13,7 @@ os.environ["NO_PROXY"] = "api.telegram.org"
 # =========================
 # CONFIG
 # =========================
-TOKEN = "TU_TOKEN_NUEVO"
+TOKEN = "8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I"
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
