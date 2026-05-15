@@ -5,14 +5,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# 🔐 TOKEN (DESDE RENDER)
+# 🔐 TOKEN DESDE RENDER
 # =========================
-TOKEN = os.environ.get("8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I")
+TOKEN = os.environ.get("TOKEN")
 
 if not TOKEN:
-    raise Exception("❌ Falta la variable de entorno TOKEN en Render")
+    raise Exception("❌ TOKEN no configurado en Render")
 
 URL = f"https://api.telegram.org/bot{TOKEN}"
+
 # =========================
 # ENVIAR MENSAJE
 # =========================
@@ -20,7 +21,11 @@ def send_msg(cid, text):
     try:
         requests.post(
             f"{URL}/sendMessage",
-            json={"chat_id": cid, "text": text, "parse_mode": "Markdown"},
+            json={
+                "chat_id": cid,
+                "text": text,
+                "parse_mode": "Markdown"
+            },
             timeout=15,
             proxies={"http": None, "https": None}
         )
@@ -87,7 +92,7 @@ def procesar(cid, file_path):
 
     rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
 
-    msg = "📊 *REPORTE DIARIO*\n\n"
+    msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
 
     for centro in rep[c_centro].unique():
         temp = rep[rep[c_centro] == centro].sort_values("fecha")
@@ -157,7 +162,7 @@ def main():
                     os.remove(local)
 
                 elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel con órdenes")
+                    send_msg(cid, "📊 Envíame tu Excel con órdenes")
 
         except Exception as e:
             print("Error loop:", e)
