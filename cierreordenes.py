@@ -2,20 +2,19 @@ import os
 import time
 import requests
 import pandas as pd
-import matplotlib.pyplot as plt
 
 # =========================
 # 🔐 TOKEN DESDE RENDER
 # =========================
-TOKEN = os.environ.get("TOKEN")
+TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise Exception("❌ TOKEN no configurado en Render")
+    raise Exception("❌ TOKEN no encontrado en variables de entorno")
 
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# ENVIAR MENSAJE
+# MENSAJES
 # =========================
 def send_msg(cid, text):
     try:
@@ -30,112 +29,108 @@ def send_msg(cid, text):
             proxies={"http": None, "https": None}
         )
     except Exception as e:
-        print("Error msg:", e)
+        print("Error send_msg:", e)
 
 # =========================
-# ENVIAR DOCUMENTO
-# =========================
-def send_doc(cid, path):
-    try:
-        with open(path, "rb") as f:
-            requests.post(
-                f"{URL}/sendDocument",
-                data={"chat_id": cid},
-                files={"document": f},
-                timeout=30,
-                proxies={"http": None, "https": None}
-            )
-    except Exception as e:
-        print("Error doc:", e)
-
-# =========================
-# PROCESAR EXCEL (TU ESTRUCTURA REAL)
+# PROCESAR EXCEL (ESTABLE)
 # =========================
 def procesar(cid, file_path):
-
     try:
+        print("📥 Leyendo Excel...")
+
         df = pd.read_excel(file_path, engine="openpyxl")
-    except Exception as e:
-        send_msg(cid, f"❌ Error leyendo Excel: {e}")
-        return
 
-    # limpiar columnas
-    df.columns = [str(c).strip().lower() for c in df.columns]
+        print("📊 Columnas originales:", df.columns)
 
-    # =========================
-    # COLUMNAS REALES
-    # =========================
-    c_centro = "centro"
-    c_inicio = "fecha de inicio extrema"
-    c_fin = "fecha real de fin de la orden"
-
-    # validar columnas
-    if c_centro not in df.columns or c_inicio not in df.columns or c_fin not in df.columns:
-        send_msg(
-            cid,
-            "❌ Faltan columnas en el Excel:\n\n"
-            f"{list(df.columns)}"
+        # limpiar columnas
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.strip()
+            .str.lower()
         )
-        return
 
-    # =========================
-    # FECHAS
-    # =========================
-    df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
-    df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
+        print("📊 Columnas limpias:", df.columns)
 
-    df = df.dropna(subset=[c_centro, c_inicio])
+        # =========================
+        # COLUMNAS REALES
+        # =========================
+        c_centro = "centro"
+        c_inicio = "fecha de inicio extrema"
+        c_fin = "fecha real de fin de la orden"
 
-    # =========================
-    # DÍAS
-    # =========================
-    df["dia_inicio"] = df[c_inicio].dt.date
-    df["dia_fin"] = df[c_fin].dt.date
-
-    # =========================
-    # LANZADAS (PLAN)
-    # =========================
-    lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
-
-    # =========================
-    # CERRADAS (REAL)
-    # =========================
-    cerradas = df.dropna(subset=[c_fin])
-    cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
-
-    # =========================
-    # UNIR DATOS
-    # =========================
-    rep = pd.merge(
-        lanzadas,
-        cerradas,
-        left_on=[c_centro, "dia_inicio"],
-        right_on=[c_centro, "dia_fin"],
-        how="outer"
-    ).fillna(0)
-
-    rep["lanzadas"] = rep["lanzadas"].astype(int)
-    rep["cerradas"] = rep["cerradas"].astype(int)
-    rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
-
-    # =========================
-    # MENSAJE FINAL
-    # =========================
-    msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
-
-    for centro in rep[c_centro].unique():
-        temp = rep[rep[c_centro] == centro].sort_values("fecha")
-
-        msg += f"🏢 *{centro}*\n"
-
-        for _, r in temp.iterrows():
-            msg += (
-                f"📅 {r['fecha']}\n"
-                f"📦 Lanzadas (Plan): {r['lanzadas']}\n"
-                f"✅ Cerradas (Real): {r['cerradas']}\n\n"
+        # validar
+        if c_centro not in df.columns or c_inicio not in df.columns or c_fin not in df.columns:
+            send_msg(
+                cid,
+                "❌ Columnas no coinciden:\n\n" + str(list(df.columns))
             )
+            return
 
-    send_msg(cid, msg)
+        # =========================
+        # FECHAS
+        # =========================
+        df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
+        df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
+
+        df = df.dropna(subset=[c_centro, c_inicio])
+
+        # =========================
+        # DÍAS
+        # =========================
+        df["dia_inicio"] = df[c_inicio].dt.date
+        df["dia_fin"] = df[c_fin].dt.date
+
+        # =========================
+        # LANZADAS
+        # =========================
+        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
+
+        # =========================
+        # CERRADAS
+        # =========================
+        cerradas = df.dropna(subset=[c_fin])
+        cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
+
+        # =========================
+        # UNIR
+        # =========================
+        rep = pd.merge(
+            lanzadas,
+            cerradas,
+            left_on=[c_centro, "dia_inicio"],
+            right_on=[c_centro, "dia_fin"],
+            how="outer"
+        ).fillna(0)
+
+        rep["lanzadas"] = rep["lanzadas"].astype(int)
+        rep["cerradas"] = rep["cerradas"].astype(int)
+        rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
+
+        # =========================
+        # MENSAJE FINAL
+        # =========================
+        msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
+
+        for centro in rep[c_centro].unique():
+            temp = rep[rep[c_centro] == centro].sort_values("fecha")
+
+            msg += f"🏢 *{centro}*\n"
+
+            for _, r in temp.iterrows():
+                msg += (
+                    f"📅 {r['fecha']}\n"
+                    f"📦 Lanzadas: {r['lanzadas']}\n"
+                    f"✅ Cerradas: {r['cerradas']}\n\n"
+                )
+
+        send_msg(cid, msg)
+
+        print("✅ PROCESO TERMINADO OK")
+
+    except Exception as e:
+        print("❌ ERROR PROCESANDO:", e)
+        send_msg(cid, f"❌ Error interno: {e}")
 
 # =========================
 # BOT LOOP
@@ -156,6 +151,8 @@ def main():
 
             data = r.json()
 
+            print("📡 UPDATE RECIBIDO")
+
             for u in data.get("result", []):
                 offset = u["update_id"] + 1
 
@@ -166,7 +163,13 @@ def main():
                     continue
 
                 # =====================
-                # EXCEL
+                # START
+                # =====================
+                if m.get("text") == "/start":
+                    send_msg(cid, "📊 Envía tu Excel con órdenes")
+
+                # =====================
+                # DOCUMENTO
                 # =====================
                 if "document" in m:
                     send_msg(cid, "⌛ Procesando archivo...")
@@ -193,14 +196,8 @@ def main():
 
                     os.remove(local)
 
-                # =====================
-                # START
-                # =====================
-                elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envíame tu Excel con órdenes")
-
         except Exception as e:
-            print("Error loop:", e)
+            print("❌ LOOP ERROR:", e)
             time.sleep(5)
 
 if __name__ == "__main__":
