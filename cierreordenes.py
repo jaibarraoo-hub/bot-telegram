@@ -41,7 +41,7 @@ def send_photo(cid, path):
         print("ERROR PHOTO:", e)
 
 # =========================
-# PROCESAR
+# PROCESAR EXCEL
 # =========================
 def procesar(cid, archivo):
 
@@ -49,6 +49,7 @@ def procesar(cid, archivo):
 
         df = pd.read_excel(archivo, engine="openpyxl")
 
+        # normalizar columnas
         df.columns = (
             df.columns
             .astype(str)
@@ -70,7 +71,7 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS ORDENES
+        # FILTROS
         # =========================
         if c_texto in df.columns:
 
@@ -80,7 +81,7 @@ def procesar(cid, archivo):
             df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
 
         # =========================
-        # DIAS
+        # FECHAS DIA
         # =========================
         df["dia_inicio"] = df[c_inicio].dt.date
         df["dia_fin"] = df[c_fin].dt.date
@@ -115,7 +116,7 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # MENSAJE TEXTO
+        # MENSAJE
         # =========================
         msg = "📊 REPORTE DIARIO\n\n"
 
@@ -198,28 +199,42 @@ def procesar(cid, archivo):
                 )
 
                 # =========================
-                # ETIQUETAS SIN CHOQUE
+                # ETIQUETAS PRO (SIN SOLAPES)
                 # =========================
-                for x, y in zip(temp["fecha"], temp["lanzadas"]):
+                offsets = [0.6, 1.0, 1.4]
+
+                for j, (x, y) in enumerate(zip(temp["fecha"], temp["lanzadas"])):
 
                     ax.text(
                         x,
-                        y + 0.5,   # arriba
+                        y + offsets[j % 3],
                         str(y),
                         fontsize=7,
                         ha="center",
-                        color="#1f77b4"
+                        color="#1f77b4",
+                        bbox=dict(
+                            facecolor="white",
+                            edgecolor="none",
+                            alpha=0.75,
+                            boxstyle="round,pad=0.2"
+                        )
                     )
 
-                for x, y in zip(temp["fecha"], temp["cerradas"]):
+                for j, (x, y) in enumerate(zip(temp["fecha"], temp["cerradas"])):
 
                     ax.text(
                         x,
-                        y - 0.7,   # abajo para evitar línea verde
+                        y - offsets[j % 3],
                         str(y),
                         fontsize=7,
                         ha="center",
-                        color="#2ca02c"
+                        color="#2ca02c",
+                        bbox=dict(
+                            facecolor="white",
+                            edgecolor="none",
+                            alpha=0.75,
+                            boxstyle="round,pad=0.2"
+                        )
                     )
 
                 # =========================
@@ -257,7 +272,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT DASHBOARD PRO ACTIVO")
+    print("🚀 BOT DASHBOARD PRO FINAL ACTIVO")
 
     while True:
 
