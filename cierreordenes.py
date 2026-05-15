@@ -5,124 +5,139 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# 🔧 FIX PROXY (IMPORTANTE)
+# 🔐 TOKEN DESDE RENDER
 # =========================
-import os
-os.environ["NO_PROXY"] = "api.telegram.org"
-
-# =========================
-# CONFIG
-# =========================
-TOKEN = "8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I"
+TOKEN = os.environ.get("TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# REQUEST SEGURO
-# =========================
-def safe_get(url, **kwargs):
-    for i in range(3):  # reintentos
-        try:
-            return requests.get(
-                url,
-                timeout=30,
-                proxies={"http": None, "https": None},
-                **kwargs
-            )
-        except Exception as e:
-            print(f"⚠️ Retry {i+1}: {e}")
-            time.sleep(2)
-    return None
-
+# ENVIAR MENSAJE
 # =========================
 def send_msg(cid, text):
     try:
         requests.post(
             f"{URL}/sendMessage",
-            json={"chat_id": cid, "text": text},
-            timeout=10,
+            json={"chat_id": cid, "text": text, "parse_mode": "Markdown"},
+            timeout=15,
             proxies={"http": None, "https": None}
         )
     except Exception as e:
-        print(f"❌ Error msg: {e}")
+        print("Error msg:", e)
 
+# =========================
+# ENVIAR DOCUMENTO
 # =========================
 def send_doc(cid, path):
     try:
-        if os.path.exists(path):
-            with open(path, "rb") as f:
-                requests.post(
-                    f"{URL}/sendDocument",
-                    data={"chat_id": cid},
-                    files={"document": f},
-                    timeout=30,
-                    proxies={"http": None, "https": None}
-                )
+        with open(path, "rb") as f:
+            requests.post(
+                f"{URL}/sendDocument",
+                data={"chat_id": cid},
+                files={"document": f},
+                timeout=30,
+                proxies={"http": None, "https": None}
+            )
     except Exception as e:
-        print(f"❌ Error doc: {e}")
+        print("Error doc:", e)
 
 # =========================
-# PROCESAR EXCEL
+# PROCESAMIENTO PRINCIPAL
 # =========================
-def procesar(cid, path):
+def procesar(cid, file_path):
 
-    try:
-        df = pd.read_excel(path, engine="openpyxl")
+    df = pd.read_excel(file_path, engine="openpyxl")
 
-        df.columns = [str(c).strip().lower() for c in df.columns]
+    df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # =========================
-        # CENTRO
-        # =========================
-        col_centro = next((c for c in df.columns if "centro" in c), None)
+    # =========================
+    # DETECTAR COLUMNAS
+    # =========================
+    c_centro = next((c for c in df.columns if "centro" in c), None)
+    c_inicio = next((c for c in df.columns if "inicio" in c or "plan" in c), None)
+    c_fin = next((c for c in df.columns if "fin" in c or "real" in c or "cierre" in c), None)
 
-        if not col_centro:
-            send_msg(cid, "❌ No se encontró columna 'centro'")
-            return
+    if not (c_centro and c_inicio and c_fin):
+        send_msg(cid, f"❌ Faltan columnas. Detectadas: {list(df.columns)}")
+        return
 
-        df = df[[col_centro]].dropna()
+    # =========================
+    # FECHAS
+    # =========================
+    df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
+    df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
-        resumen = df[col_centro].value_counts().reset_index()
-        resumen.columns = ["Centro", "Cantidad"]
+    df = df.dropna(subset=[c_inicio, c_centro])
 
-        # =========================
-        # GRAFICA
-        # =========================
-        plt.figure(figsize=(12,6))
-        plt.bar(resumen["Centro"], resumen["Cantidad"], color="blue")
-        plt.xticks(rotation=45, ha="right")
-        plt.title("Reporte por Centro")
-        plt.tight_layout()
+    # =========================
+    # FECHA SOLO DÍA
+    # =========================
+    df["dia_inicio"] = df[c_inicio].dt.date
+    df["dia_fin"] = df[c_fin].dt.date
 
-        pdf = "reporte.pdf"
-        plt.savefig(pdf)
-        plt.close()
+    # =========================
+    # ÓRDENES LANZADAS
+    # =========================
+    lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
 
-        send_doc(cid, pdf)
-        send_msg(cid, "📊 Reporte generado correctamente")
+    # =========================
+    # ÓRDENES CERRADAS
+    # =========================
+    cerradas = df.dropna(subset=[c_fin])
+    cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
-    except Exception as e:
-        send_msg(cid, f"⚠️ Error procesando archivo: {e}")
+    # =========================
+    # UNIR
+    # =========================
+    rep = pd.merge(
+        lanzadas,
+        cerradas,
+        left_on=[c_centro, "dia_inicio"],
+        right_on=[c_centro, "dia_fin"],
+        how="outer"
+    ).fillna(0)
+
+    rep["lanzadas"] = rep["lanzadas"].astype(int)
+    rep["cerradas"] = rep["cerradas"].astype(int)
+
+    rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
+
+    # =========================
+    # MENSAJE TELEGRAM
+    # =========================
+    msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
+
+    for centro in rep[c_centro].unique():
+
+        temp = rep[rep[c_centro] == centro].sort_values("fecha")
+
+        msg += f"🏢 *{centro}*\n"
+
+        for _, r in temp.iterrows():
+            msg += (
+                f"📅 {r['fecha']}\n"
+                f"📦 Lanzadas: {r['lanzadas']}\n"
+                f"✅ Cerradas: {r['cerradas']}\n\n"
+            )
+
+    send_msg(cid, msg)
 
 # =========================
-# MAIN LOOP ESTABLE
+# BOT LOOP
 # =========================
 def main():
 
-    print("🤖 BOT ESTABLE INICIADO")
+    print("🤖 BOT ACTIVO")
 
     offset = 0
 
     while True:
-
         try:
-
-            r = safe_get(
+            r = requests.get(
                 f"{URL}/getUpdates",
-                params={"offset": offset, "timeout": 30}
+                params={"offset": offset, "timeout": 30},
+                proxies={"http": None, "https": None},
+                timeout=40
             )
-
-            if r is None:
-                continue
 
             data = r.json()
 
@@ -137,7 +152,7 @@ def main():
                     continue
 
                 # =====================
-                # DOCUMENTO
+                # ARCHIVO EXCEL
                 # =====================
                 if "document" in m:
 
@@ -145,24 +160,16 @@ def main():
 
                     file_id = m["document"]["file_id"]
 
-                    file_info = safe_get(
+                    file_info = requests.get(
                         f"{URL}/getFile",
                         params={"file_id": file_id}
-                    )
+                    ).json()
 
-                    if file_info is None:
-                        send_msg(cid, "❌ Error obteniendo archivo")
-                        continue
-
-                    file_path = file_info.json()["result"]["file_path"]
+                    file_path = file_info["result"]["file_path"]
 
                     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
 
-                    file_data = safe_get(file_url)
-
-                    if file_data is None:
-                        send_msg(cid, "❌ Error descargando archivo")
-                        continue
+                    file_data = requests.get(file_url)
 
                     local = "temp.xlsx"
 
@@ -171,18 +178,14 @@ def main():
 
                     procesar(cid, local)
 
-                    if os.path.exists(local):
-                        os.remove(local)
+                    os.remove(local)
 
-                # =====================
-                # START
-                # =====================
                 elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envíame un Excel con columna 'centro'")
+                    send_msg(cid, "📊 Envíame tu Excel con columnas de órdenes")
 
         except Exception as e:
-            print(f"⚠️ LOOP ERROR: {e}")
-            time.sleep(3)
+            print("Error loop:", e)
+            time.sleep(5)
 
 # =========================
 if __name__ == "__main__":
