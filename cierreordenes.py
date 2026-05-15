@@ -52,29 +52,34 @@ def send_doc(cid, path):
 # PROCESAR EXCEL (TU ESTRUCTURA REAL)
 # =========================
 def procesar(cid, file_path):
+
     try:
         df = pd.read_excel(file_path, engine="openpyxl")
     except Exception as e:
         send_msg(cid, f"❌ Error leyendo Excel: {e}")
         return
 
-    # limpiar nombres de columnas
+    # limpiar columnas
     df.columns = [str(c).strip().lower() for c in df.columns]
 
     # =========================
-    # COLUMNAS FIJAS (TU CASO)
+    # COLUMNAS REALES
     # =========================
     c_centro = "centro"
-    c_inicio = "plan"
-    c_fin = "real"
+    c_inicio = "fecha de inicio extrema"
+    c_fin = "fecha real de fin de la orden"
 
     # validar columnas
     if c_centro not in df.columns or c_inicio not in df.columns or c_fin not in df.columns:
-        send_msg(cid, f"❌ Faltan columnas en el Excel:\n{list(df.columns)}")
+        send_msg(
+            cid,
+            "❌ Faltan columnas en el Excel:\n\n"
+            f"{list(df.columns)}"
+        )
         return
 
     # =========================
-    # CONVERTIR FECHAS
+    # FECHAS
     # =========================
     df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
     df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
@@ -88,18 +93,18 @@ def procesar(cid, file_path):
     df["dia_fin"] = df[c_fin].dt.date
 
     # =========================
-    # LANZADAS
+    # LANZADAS (PLAN)
     # =========================
     lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
 
     # =========================
-    # CERRADAS
+    # CERRADAS (REAL)
     # =========================
     cerradas = df.dropna(subset=[c_fin])
     cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
     # =========================
-    # UNIR
+    # UNIR DATOS
     # =========================
     rep = pd.merge(
         lanzadas,
@@ -126,8 +131,8 @@ def procesar(cid, file_path):
         for _, r in temp.iterrows():
             msg += (
                 f"📅 {r['fecha']}\n"
-                f"📦 Lanzadas: {r['lanzadas']}\n"
-                f"✅ Cerradas: {r['cerradas']}\n\n"
+                f"📦 Lanzadas (Plan): {r['lanzadas']}\n"
+                f"✅ Cerradas (Real): {r['cerradas']}\n\n"
             )
 
     send_msg(cid, msg)
@@ -192,7 +197,7 @@ def main():
                 # START
                 # =====================
                 elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envíame tu Excel con columnas: centro, plan, real")
+                    send_msg(cid, "📊 Envíame tu Excel con órdenes")
 
         except Exception as e:
             print("Error loop:", e)
