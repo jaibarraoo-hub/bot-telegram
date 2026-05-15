@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# TOKEN DESDE RENDER
+# TOKEN
 # =========================
 TOKEN = os.getenv("TOKEN")
 
@@ -15,48 +15,32 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# ENVIAR MENSAJE
+# MENSAJE
 # =========================
 def send_msg(cid, text):
-
     try:
-
         requests.post(
             f"{URL}/sendMessage",
-            json={
-                "chat_id": cid,
-                "text": text
-            },
+            json={"chat_id": cid, "text": text},
             timeout=20
         )
-
     except Exception as e:
-
-        print("ERROR MENSAJE:", e)
+        print("ERROR MSG:", e)
 
 # =========================
-# ENVIAR IMAGEN
+# FOTO
 # =========================
 def send_photo(cid, path):
-
     try:
-
         with open(path, "rb") as img:
-
             requests.post(
                 f"{URL}/sendPhoto",
-                data={
-                    "chat_id": cid
-                },
-                files={
-                    "photo": img
-                },
+                data={"chat_id": cid},
+                files={"photo": img},
                 timeout=60
             )
-
     except Exception as e:
-
-        print("ERROR FOTO:", e)
+        print("ERROR PHOTO:", e)
 
 # =========================
 # PROCESAR EXCEL
@@ -65,19 +49,8 @@ def procesar(cid, archivo):
 
     try:
 
-        print("LEYENDO EXCEL...")
+        df = pd.read_excel(archivo, engine="openpyxl")
 
-        # =========================
-        # LEER EXCEL
-        # =========================
-        df = pd.read_excel(
-            archivo,
-            engine="openpyxl"
-        )
-
-        print("EXCEL OK")
-
-        # limpiar columnas
         df.columns = (
             df.columns
             .astype(str)
@@ -85,80 +58,28 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
-        print("COLUMNAS:", list(df.columns))
-
-        # =========================
-        # COLUMNAS REALES
-        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
 
-        # validar
-        faltantes = []
+        df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
+        df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
-        if c_centro not in df.columns:
-            faltantes.append(c_centro)
+        df = df.dropna(subset=[c_centro, c_inicio])
 
-        if c_inicio not in df.columns:
-            faltantes.append(c_inicio)
-
-        if c_fin not in df.columns:
-            faltantes.append(c_fin)
-
-        if faltantes:
-
-            send_msg(
-                cid,
-                f"Faltan columnas:\n{faltantes}"
-            )
-
-            return
-
-        # =========================
-        # FECHAS
-        # =========================
-        df[c_inicio] = pd.to_datetime(
-            df[c_inicio],
-            errors="coerce"
-        )
-
-        df[c_fin] = pd.to_datetime(
-            df[c_fin],
-            errors="coerce"
-        )
-
-        # quitar nulos
-        df = df.dropna(
-            subset=[c_centro, c_inicio]
-        )
-
-        print("FILAS:", len(df))
-
-        # =========================
-        # DIAS
-        # =========================
         df["dia_inicio"] = df[c_inicio].dt.date
         df["dia_fin"] = df[c_fin].dt.date
 
         # =========================
         # LANZADAS
         # =========================
-        lanzadas = (
-            df.groupby([c_centro, "dia_inicio"])
-            .size()
-            .reset_index(name="lanzadas")
-        )
+        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
 
         # =========================
         # CERRADAS
         # =========================
-        cerradas = (
-            df.dropna(subset=[c_fin])
-            .groupby([c_centro, "dia_fin"])
-            .size()
-            .reset_index(name="cerradas")
-        )
+        cerradas = df.dropna(subset=[c_fin])
+        cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
         # =========================
         # MERGE
@@ -171,129 +92,120 @@ def procesar(cid, archivo):
             how="outer"
         )
 
-        # numeros
-        rep["lanzadas"] = (
-            rep["lanzadas"]
-            .fillna(0)
-            .astype(int)
-        )
+        rep["lanzadas"] = rep["lanzadas"].fillna(0).astype(int)
+        rep["cerradas"] = rep["cerradas"].fillna(0).astype(int)
 
-        rep["cerradas"] = (
-            rep["cerradas"]
-            .fillna(0)
-            .astype(int)
-        )
+        rep["fecha"] = rep["dia_inicio"].combine_first(rep["dia_fin"])
 
-        # fecha segura
-        rep["fecha"] = (
-            rep["dia_inicio"]
-            .combine_first(rep["dia_fin"])
-        )
-
-        # quitar vacíos
         rep = rep.dropna(subset=["fecha"])
 
-        print("REPORTE OK")
+        # =========================
+        # BACKLOG ACUMULADO
+        # =========================
+        rep = rep.sort_values(["centro", "fecha"])
+
+        rep["backlog"] = 0
+
+        for centro in rep[c_centro].unique():
+
+            idx = rep[c_centro] == centro
+
+            temp = rep[idx].copy()
+
+            backlog = 0
+            valores = []
+
+            for _, r in temp.iterrows():
+
+                backlog += r["lanzadas"] - r["cerradas"]
+
+                valores.append(backlog)
+
+            rep.loc[idx, "backlog"] = valores
 
         # =========================
         # MENSAJE
         # =========================
-        msg = "REPORTE DIARIO\n\n"
+        msg = "📊 *REPORTE PRO*\n\n"
 
-        for centro in rep[c_centro].dropna().unique():
+        ranking = []
 
-            temp = rep[
-                rep[c_centro] == centro
-            ].copy()
+        for centro in rep[c_centro].unique():
 
-            temp = temp.sort_values("fecha")
+            temp = rep[rep[c_centro] == centro].sort_values("fecha")
 
-            msg += f"{centro}\n"
+            total_l = temp["lanzadas"].sum()
+            total_c = temp["cerradas"].sum()
+            backlog_final = temp["backlog"].iloc[-1]
 
-            for _, r in temp.iterrows():
+            ranking.append((centro, backlog_final))
 
-                msg += (
-                    f"{r['fecha']} | "
-                    f"Lanzadas: {r['lanzadas']} | "
-                    f"Cerradas: {r['cerradas']}\n"
-                )
+            # SEMÁFORO
+            if backlog_final <= 2:
+                estado = "🟢 OK"
+            elif backlog_final <= 5:
+                estado = "🟡 MEDIO"
+            else:
+                estado = "🔴 CRÍTICO"
 
-            msg += "\n"
+            msg += f"🏢 {centro}\n"
+            msg += f"{estado}\n"
+            msg += f"📦 Lanzadas: {total_l}\n"
+            msg += f"✅ Cerradas: {total_c}\n"
+            msg += f"📊 Backlog: {backlog_final}\n\n"
 
             # =========================
             # GRAFICA
             # =========================
             plt.figure(figsize=(12, 5))
 
-            plt.plot(
-                temp["fecha"],
-                temp["lanzadas"],
-                marker="o",
-                linewidth=2,
-                label="Lanzadas"
-            )
+            plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
+            plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
+            plt.plot(temp["fecha"], temp["backlog"], marker="o", label="Backlog")
 
-            plt.plot(
-                temp["fecha"],
-                temp["cerradas"],
-                marker="o",
-                linewidth=2,
-                label="Cerradas"
-            )
+            # etiquetas
+            for x, y in zip(temp["fecha"], temp["lanzadas"]):
+                plt.text(x, y, str(y), ha="center", va="bottom", fontsize=8)
 
-            plt.title(f"Ordenes - {centro}")
+            for x, y in zip(temp["fecha"], temp["cerradas"]):
+                plt.text(x, y, str(y), ha="center", va="top", fontsize=8)
 
-            plt.xlabel("Fecha")
-            plt.ylabel("Cantidad")
-
+            plt.title(f"Dashboard - {centro}")
             plt.xticks(rotation=45)
-
             plt.grid(True)
-
             plt.legend()
-
             plt.tight_layout()
 
-            nombre = f"grafica_{centro}.png"
-
-            plt.savefig(nombre)
-
+            img = f"graf_{centro}.png"
+            plt.savefig(img)
             plt.close()
 
-            print("GRAFICA OK:", nombre)
+            send_photo(cid, img)
 
-            # enviar gráfica
-            send_photo(cid, nombre)
+            os.remove(img)
 
-            # borrar
-            if os.path.exists(nombre):
-                os.remove(nombre)
+        # =========================
+        # RANKING
+        # =========================
+        ranking.sort(key=lambda x: x[1], reverse=True)
 
-        # telegram tiene limite
-        if len(msg) > 3500:
-            msg = msg[:3500]
+        msg += "🏆 *RANKING BACKLOG*\n\n"
+
+        for c, b in ranking:
+            msg += f"{c}: {b}\n"
 
         send_msg(cid, msg)
 
-        print("MENSAJE ENVIADO")
-
     except Exception as e:
-
-        print("ERROR PROCESAR:", e)
-
-        send_msg(
-            cid,
-            f"ERROR:\n{e}"
-        )
+        send_msg(cid, f"❌ ERROR: {e}")
 
 # =========================
-# MAIN
+# BOT LOOP
 # =========================
 def main():
 
-    print("BOT ACTIVO")
-
     offset = 0
+    print("BOT PRO ACTIVO")
 
     while True:
 
@@ -301,10 +213,7 @@ def main():
 
             r = requests.get(
                 f"{URL}/getUpdates",
-                params={
-                    "offset": offset,
-                    "timeout": 30
-                },
+                params={"offset": offset, "timeout": 30},
                 timeout=40
             )
 
@@ -315,96 +224,43 @@ def main():
                 offset = u["update_id"] + 1
 
                 m = u.get("message", {})
-
                 cid = m.get("chat", {}).get("id")
 
                 if not cid:
                     continue
 
-                # =====================
-                # START
-                # =====================
                 if m.get("text") == "/start":
+                    send_msg(cid, "📊 Envía tu Excel SAP")
 
-                    send_msg(
-                        cid,
-                        "Envia tu Excel"
-                    )
-
-                # =====================
-                # ARCHIVO
-                # =====================
                 if "document" in m:
 
-                    send_msg(
-                        cid,
-                        "Procesando..."
-                    )
-
-                    print("DOCUMENTO RECIBIDO")
+                    send_msg(cid, "⌛ Procesando...")
 
                     file_id = m["document"]["file_id"]
 
-                    # =====================
-                    # GET FILE
-                    # =====================
                     info = requests.get(
                         f"{URL}/getFile",
-                        params={
-                            "file_id": file_id
-                        },
-                        timeout=30
+                        params={"file_id": file_id}
                     ).json()
-
-                    print("GETFILE OK")
 
                     file_path = info["result"]["file_path"]
 
-                    file_url = (
-                        f"https://api.telegram.org/file/bot"
-                        f"{TOKEN}/{file_path}"
-                    )
+                    file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
 
-                    print("DESCARGANDO...")
-
-                    archivo = requests.get(
-                        file_url,
-                        timeout=60
-                    )
-
-                    print("DESCARGA OK")
-
-                    if archivo.status_code != 200:
-
-                        send_msg(
-                            cid,
-                            "Error descargando archivo"
-                        )
-
-                        continue
+                    file_data = requests.get(file_url, timeout=60)
 
                     local = "temp.xlsx"
 
                     with open(local, "wb") as f:
-                        f.write(archivo.content)
+                        f.write(file_data.content)
 
-                    print("ARCHIVO GUARDADO")
-
-                    # procesar
                     procesar(cid, local)
 
-                    # borrar excel
-                    if os.path.exists(local):
-                        os.remove(local)
+                    os.remove(local)
 
         except Exception as e:
-
-            print("ERROR LOOP:", e)
-
+            print("LOOP ERROR:", e)
             time.sleep(5)
 
-# =========================
-# START
-# =========================
 if __name__ == "__main__":
     main()
