@@ -16,7 +16,7 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# MENSAJE
+# MENSAJES
 # =========================
 def send_msg(cid, text):
     try:
@@ -28,9 +28,6 @@ def send_msg(cid, text):
     except Exception as e:
         print("ERROR MSG:", e)
 
-# =========================
-# FOTO
-# =========================
 def send_photo(cid, path):
     try:
         with open(path, "rb") as img:
@@ -44,7 +41,7 @@ def send_photo(cid, path):
         print("ERROR PHOTO:", e)
 
 # =========================
-# PROCESAR EXCEL
+# PROCESAR
 # =========================
 def procesar(cid, archivo):
 
@@ -52,9 +49,6 @@ def procesar(cid, archivo):
 
         df = pd.read_excel(archivo, engine="openpyxl")
 
-        # =========================
-        # NORMALIZAR COLUMNAS
-        # =========================
         df.columns = (
             df.columns
             .astype(str)
@@ -76,7 +70,7 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS
+        # FILTROS ORDENES
         # =========================
         if c_texto in df.columns:
 
@@ -121,7 +115,7 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # MENSAJE
+        # MENSAJE TEXTO
         # =========================
         msg = "📊 REPORTE DIARIO\n\n"
 
@@ -138,7 +132,6 @@ def procesar(cid, archivo):
             total_c = temp["cerradas"].sum()
 
             estado = "🟢 OK"
-
             if total_l - total_c > 3:
                 estado = "🔴 ALTA CARGA"
             elif total_l - total_c > 0:
@@ -152,7 +145,7 @@ def procesar(cid, archivo):
         send_msg(cid, msg)
 
         # =========================
-        # DASHBOARD 2 HOJAS PRO
+        # DASHBOARD 2 PÁGINAS
         # =========================
         centros = rep[c_centro].dropna().unique()
         mid = math.ceil(len(centros) / 2)
@@ -179,11 +172,10 @@ def procesar(cid, archivo):
                 temp = temp.sort_values("fecha")
 
                 ax = plt.subplot(rows, cols, i)
-
                 ax.set_facecolor("#f7f9fc")
 
                 # =========================
-                # LINEAS PRO
+                # LÍNEAS PRO
                 # =========================
                 ax.plot(
                     temp["fecha"],
@@ -206,12 +198,13 @@ def procesar(cid, archivo):
                 )
 
                 # =========================
-                # ETIQUETAS PRO
+                # ETIQUETAS SIN CHOQUE
                 # =========================
                 for x, y in zip(temp["fecha"], temp["lanzadas"]):
+
                     ax.text(
                         x,
-                        y + 0.2,
+                        y + 0.5,   # arriba
                         str(y),
                         fontsize=7,
                         ha="center",
@@ -219,9 +212,10 @@ def procesar(cid, archivo):
                     )
 
                 for x, y in zip(temp["fecha"], temp["cerradas"]):
+
                     ax.text(
                         x,
-                        y - 0.3,
+                        y - 0.7,   # abajo para evitar línea verde
                         str(y),
                         fontsize=7,
                         ha="center",
@@ -229,7 +223,7 @@ def procesar(cid, archivo):
                     )
 
                 # =========================
-                # TITULO PRO
+                # TÍTULO PRO
                 # =========================
                 ax.set_title(
                     f"📊 Dashboard Operativo - {centro}",
@@ -263,7 +257,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT PRO DASHBOARD ACTIVO")
+    print("🚀 BOT DASHBOARD PRO ACTIVO")
 
     while True:
 
