@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# 🔐 TOKEN (SOLO DESDE RENDER)
+# 🔐 TOKEN (DESDE RENDER)
 # =========================
 TOKEN = os.environ.get("8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I")
 
@@ -13,7 +13,6 @@ if not TOKEN:
     raise Exception("❌ Falta la variable de entorno TOKEN en Render")
 
 URL = f"https://api.telegram.org/bot{TOKEN}"
-
 # =========================
 # ENVIAR MENSAJE
 # =========================
