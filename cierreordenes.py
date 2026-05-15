@@ -9,7 +9,7 @@ import pandas as pd
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise Exception("❌ TOKEN no encontrado en variables de entorno")
+    raise Exception("❌ TOKEN no encontrado en Render")
 
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
@@ -32,7 +32,7 @@ def send_msg(cid, text):
         print("Error send_msg:", e)
 
 # =========================
-# PROCESAR EXCEL (ESTABLE)
+# PROCESAR EXCEL
 # =========================
 def procesar(cid, file_path):
     try:
@@ -61,10 +61,7 @@ def procesar(cid, file_path):
 
         # validar
         if c_centro not in df.columns or c_inicio not in df.columns or c_fin not in df.columns:
-            send_msg(
-                cid,
-                "❌ Columnas no coinciden:\n\n" + str(list(df.columns))
-            )
+            send_msg(cid, "❌ Columnas no coinciden:\n\n" + str(list(df.columns)))
             return
 
         # =========================
@@ -93,7 +90,7 @@ def procesar(cid, file_path):
         cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
         # =========================
-        # UNIR
+        # UNIR SIN ROMPER TIPOS
         # =========================
         rep = pd.merge(
             lanzadas,
@@ -101,11 +98,14 @@ def procesar(cid, file_path):
             left_on=[c_centro, "dia_inicio"],
             right_on=[c_centro, "dia_fin"],
             how="outer"
-        ).fillna(0)
+        )
 
-        rep["lanzadas"] = rep["lanzadas"].astype(int)
-        rep["cerradas"] = rep["cerradas"].astype(int)
-        rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
+        # valores numéricos seguros
+        rep["lanzadas"] = rep["lanzadas"].fillna(0).astype(int)
+        rep["cerradas"] = rep["cerradas"].fillna(0).astype(int)
+
+        # fecha segura (SIN 0, SIN int)
+        rep["fecha"] = rep["dia_inicio"].combine_first(rep["dia_fin"])
 
         # =========================
         # MENSAJE FINAL
@@ -113,7 +113,10 @@ def procesar(cid, file_path):
         msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
 
         for centro in rep[c_centro].unique():
-            temp = rep[rep[c_centro] == centro].sort_values("fecha")
+            temp = rep[rep[c_centro] == centro].copy()
+
+            # ordenar seguro (solo fechas válidas)
+            temp = temp.sort_values("fecha")
 
             msg += f"🏢 *{centro}*\n"
 
@@ -129,7 +132,7 @@ def procesar(cid, file_path):
         print("✅ PROCESO TERMINADO OK")
 
     except Exception as e:
-        print("❌ ERROR PROCESANDO:", e)
+        print("❌ ERROR:", e)
         send_msg(cid, f"❌ Error interno: {e}")
 
 # =========================
@@ -151,8 +154,6 @@ def main():
 
             data = r.json()
 
-            print("📡 UPDATE RECIBIDO")
-
             for u in data.get("result", []):
                 offset = u["update_id"] + 1
 
@@ -162,15 +163,9 @@ def main():
                 if not cid:
                     continue
 
-                # =====================
-                # START
-                # =====================
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel con órdenes")
+                    send_msg(cid, "📊 Envíame tu Excel con órdenes")
 
-                # =====================
-                # DOCUMENTO
-                # =====================
                 if "document" in m:
                     send_msg(cid, "⌛ Procesando archivo...")
 
