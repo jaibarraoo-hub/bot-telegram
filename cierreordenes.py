@@ -58,21 +58,32 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
-        # =========================
-        # COLUMNAS
-        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
+        c_texto = "texto breve"
 
         # =========================
-        # FECHAS
+        # LIMPIEZA FECHAS
         # =========================
         df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
         df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
         df = df.dropna(subset=[c_centro, c_inicio])
 
+        # =========================
+        # FILTRO ORDENES EXCLUIDAS
+        # =========================
+        if c_texto in df.columns:
+
+            df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
+
+            df = df[~df[c_texto].str.startswith("insp. semanal")]
+            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
+
+        # =========================
+        # FECHAS DIA
+        # =========================
         df["dia_inicio"] = df[c_inicio].dt.date
         df["dia_fin"] = df[c_fin].dt.date
 
@@ -108,9 +119,11 @@ def procesar(cid, archivo):
         # =========================
         # MENSAJE
         # =========================
-        msg = "📊 *REPORTE DIARIO*\n\n"
+        msg = "📊 REPORTE DIARIO\n\n"
 
-        for centro in rep[c_centro].dropna().unique():
+        centros = rep[c_centro].dropna().unique()
+
+        for centro in centros:
 
             temp = rep[rep[c_centro] == centro].copy()
             temp = temp.sort_values("fecha")
@@ -118,15 +131,11 @@ def procesar(cid, archivo):
             total_l = temp["lanzadas"].sum()
             total_c = temp["cerradas"].sum()
 
-            # =========================
-            # SEMÁFORO SIMPLE
-            # =========================
-            if total_l - total_c <= 0:
-                estado = "🟢 OK"
-            elif total_l - total_c <= 3:
-                estado = "🟡 MEDIA CARGA"
-            else:
+            estado = "🟢 OK"
+            if total_l - total_c > 3:
                 estado = "🔴 ALTA CARGA"
+            elif total_l - total_c > 0:
+                estado = "🟡 MEDIA"
 
             msg += f"🏢 {centro}\n"
             msg += f"{estado}\n"
@@ -134,34 +143,28 @@ def procesar(cid, archivo):
             msg += f"✅ Cerradas: {total_c}\n\n"
 
             # =========================
-            # GRAFICA
+            # 🔥 UNA SOLA GRÁFICA POR CENTRO
             # =========================
             plt.figure(figsize=(12, 5))
 
             plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
             plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
 
-            # =========================
-            # ETIQUETAS LANZADAS
-            # =========================
+            # etiquetas
             for x, y in zip(temp["fecha"], temp["lanzadas"]):
                 plt.text(x, y, str(y), ha="center", va="bottom", fontsize=8)
 
-            # =========================
-            # ETIQUETAS CERRADAS
-            # =========================
             for x, y in zip(temp["fecha"], temp["cerradas"]):
                 plt.text(x, y, str(y), ha="center", va="top", fontsize=8)
 
             plt.title(f"Órdenes - {centro}")
-            plt.xlabel("Fecha")
-            plt.ylabel("Cantidad")
             plt.xticks(rotation=45)
             plt.grid(True)
             plt.legend()
             plt.tight_layout()
 
             img = f"graf_{centro}.png"
+
             plt.savefig(img)
             plt.close()
 
@@ -180,7 +183,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("BOT ACTIVO SIN BACKLOG")
+    print("BOT ESTABLE SIN DUPLICADOS")
 
     while True:
 
@@ -205,7 +208,7 @@ def main():
                     continue
 
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel SAP")
+                    send_msg(cid, "📊 Envia tu Excel SAP")
 
                 if "document" in m:
 
