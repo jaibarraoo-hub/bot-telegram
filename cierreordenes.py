@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # =========================
 # TOKEN DESDE RENDER
@@ -19,6 +20,7 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 def send_msg(cid, text):
 
     try:
+
         requests.post(
             f"{URL}/sendMessage",
             json={
@@ -29,7 +31,32 @@ def send_msg(cid, text):
         )
 
     except Exception as e:
+
         print("ERROR MENSAJE:", e)
+
+# =========================
+# ENVIAR IMAGEN
+# =========================
+def send_photo(cid, path):
+
+    try:
+
+        with open(path, "rb") as img:
+
+            requests.post(
+                f"{URL}/sendPhoto",
+                data={
+                    "chat_id": cid
+                },
+                files={
+                    "photo": img
+                },
+                timeout=60
+            )
+
+    except Exception as e:
+
+        print("ERROR FOTO:", e)
 
 # =========================
 # PROCESAR EXCEL
@@ -40,7 +67,9 @@ def procesar(cid, archivo):
 
         print("LEYENDO EXCEL...")
 
-        # leer excel
+        # =========================
+        # LEER EXCEL
+        # =========================
         df = pd.read_excel(
             archivo,
             engine="openpyxl"
@@ -161,7 +190,7 @@ def procesar(cid, archivo):
             .combine_first(rep["dia_fin"])
         )
 
-        # quitar fechas vacias
+        # quitar vacíos
         rep = rep.dropna(subset=["fecha"])
 
         print("REPORTE OK")
@@ -190,6 +219,55 @@ def procesar(cid, archivo):
                 )
 
             msg += "\n"
+
+            # =========================
+            # GRAFICA
+            # =========================
+            plt.figure(figsize=(12, 5))
+
+            plt.plot(
+                temp["fecha"],
+                temp["lanzadas"],
+                marker="o",
+                linewidth=2,
+                label="Lanzadas"
+            )
+
+            plt.plot(
+                temp["fecha"],
+                temp["cerradas"],
+                marker="o",
+                linewidth=2,
+                label="Cerradas"
+            )
+
+            plt.title(f"Ordenes - {centro}")
+
+            plt.xlabel("Fecha")
+            plt.ylabel("Cantidad")
+
+            plt.xticks(rotation=45)
+
+            plt.grid(True)
+
+            plt.legend()
+
+            plt.tight_layout()
+
+            nombre = f"grafica_{centro}.png"
+
+            plt.savefig(nombre)
+
+            plt.close()
+
+            print("GRAFICA OK:", nombre)
+
+            # enviar gráfica
+            send_photo(cid, nombre)
+
+            # borrar
+            if os.path.exists(nombre):
+                os.remove(nombre)
 
         # telegram tiene limite
         if len(msg) > 3500:
@@ -289,9 +367,6 @@ def main():
 
                     print("DESCARGANDO...")
 
-                    # =====================
-                    # DESCARGA REAL
-                    # =====================
                     archivo = requests.get(
                         file_url,
                         timeout=60
@@ -318,7 +393,7 @@ def main():
                     # procesar
                     procesar(cid, local)
 
-                    # borrar
+                    # borrar excel
                     if os.path.exists(local):
                         os.remove(local)
 
