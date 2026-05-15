@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -51,6 +52,7 @@ def procesar(cid, archivo):
 
         df = pd.read_excel(archivo, engine="openpyxl")
 
+        # normalizar columnas
         df.columns = (
             df.columns
             .astype(str)
@@ -58,13 +60,16 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
+        # =========================
+        # COLUMNAS
+        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
         c_texto = "texto breve"
 
         # =========================
-        # LIMPIEZA FECHAS
+        # FECHAS
         # =========================
         df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
         df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
@@ -72,7 +77,7 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTRO ORDENES EXCLUIDAS
+        # FILTROS
         # =========================
         if c_texto in df.columns:
 
@@ -82,7 +87,7 @@ def procesar(cid, archivo):
             df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
 
         # =========================
-        # FECHAS DIA
+        # DIAS
         # =========================
         df["dia_inicio"] = df[c_inicio].dt.date
         df["dia_fin"] = df[c_fin].dt.date
@@ -123,6 +128,8 @@ def procesar(cid, archivo):
 
         centros = rep[c_centro].dropna().unique()
 
+        msg += f"Total centros: {len(centros)}\n\n"
+
         for centro in centros:
 
             temp = rep[rep[c_centro] == centro].copy()
@@ -132,6 +139,7 @@ def procesar(cid, archivo):
             total_c = temp["cerradas"].sum()
 
             estado = "🟢 OK"
+
             if total_l - total_c > 3:
                 estado = "🔴 ALTA CARGA"
             elif total_l - total_c > 0:
@@ -142,28 +150,54 @@ def procesar(cid, archivo):
             msg += f"📦 Lanzadas: {total_l}\n"
             msg += f"✅ Cerradas: {total_c}\n\n"
 
-            # =========================
-            # 🔥 UNA SOLA GRÁFICA POR CENTRO
-            # =========================
-            plt.figure(figsize=(12, 5))
+        send_msg(cid, msg)
 
-            plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
-            plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
+        # =========================
+        # 📊 DASHBOARD 2 HOJAS
+        # =========================
+        centros = rep[c_centro].dropna().unique()
 
-            # etiquetas
-            for x, y in zip(temp["fecha"], temp["lanzadas"]):
-                plt.text(x, y, str(y), ha="center", va="bottom", fontsize=8)
+        mid = math.ceil(len(centros) / 2)
 
-            for x, y in zip(temp["fecha"], temp["cerradas"]):
-                plt.text(x, y, str(y), ha="center", va="top", fontsize=8)
+        paginas = [
+            centros[:mid],
+            centros[mid:]
+        ]
 
-            plt.title(f"Órdenes - {centro}")
-            plt.xticks(rotation=45)
-            plt.grid(True)
-            plt.legend()
+        pagina = 1
+
+        for grupo in paginas:
+
+            cols = 2
+            rows = math.ceil(len(grupo) / cols)
+
+            plt.figure(figsize=(14, rows * 4))
+
+            for i, centro in enumerate(grupo, 1):
+
+                temp = rep[rep[c_centro] == centro].copy()
+                temp = temp.sort_values("fecha")
+
+                plt.subplot(rows, cols, i)
+
+                plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
+                plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
+
+                # etiquetas
+                for x, y in zip(temp["fecha"], temp["lanzadas"]):
+                    plt.text(x, y, str(y), fontsize=7, ha="center", va="bottom")
+
+                for x, y in zip(temp["fecha"], temp["cerradas"]):
+                    plt.text(x, y, str(y), fontsize=7, ha="center", va="top")
+
+                plt.title(centro)
+                plt.xticks(rotation=45)
+                plt.grid(True)
+                plt.legend()
+
             plt.tight_layout()
 
-            img = f"graf_{centro}.png"
+            img = f"dashboard_{pagina}.png"
 
             plt.savefig(img)
             plt.close()
@@ -172,7 +206,7 @@ def procesar(cid, archivo):
 
             os.remove(img)
 
-        send_msg(cid, msg)
+            pagina += 1
 
     except Exception as e:
         send_msg(cid, f"❌ ERROR: {e}")
@@ -183,7 +217,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("BOT ESTABLE SIN DUPLICADOS")
+    print("BOT DASHBOARD 2 HOJAS ACTIVO")
 
     while True:
 
@@ -208,7 +242,7 @@ def main():
                     continue
 
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envia tu Excel SAP")
+                    send_msg(cid, "📊 Envía tu Excel SAP")
 
                 if "document" in m:
 
