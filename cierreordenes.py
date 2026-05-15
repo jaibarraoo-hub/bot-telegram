@@ -58,10 +58,16 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
+        # =========================
+        # COLUMNAS
+        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
 
+        # =========================
+        # FECHAS
+        # =========================
         df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
         df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
@@ -100,59 +106,32 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # BACKLOG ACUMULADO
-        # =========================
-        rep = rep.sort_values(["centro", "fecha"])
-
-        rep["backlog"] = 0
-
-        for centro in rep[c_centro].unique():
-
-            idx = rep[c_centro] == centro
-
-            temp = rep[idx].copy()
-
-            backlog = 0
-            valores = []
-
-            for _, r in temp.iterrows():
-
-                backlog += r["lanzadas"] - r["cerradas"]
-
-                valores.append(backlog)
-
-            rep.loc[idx, "backlog"] = valores
-
-        # =========================
         # MENSAJE
         # =========================
-        msg = "📊 *REPORTE PRO*\n\n"
+        msg = "📊 *REPORTE DIARIO*\n\n"
 
-        ranking = []
+        for centro in rep[c_centro].dropna().unique():
 
-        for centro in rep[c_centro].unique():
-
-            temp = rep[rep[c_centro] == centro].sort_values("fecha")
+            temp = rep[rep[c_centro] == centro].copy()
+            temp = temp.sort_values("fecha")
 
             total_l = temp["lanzadas"].sum()
             total_c = temp["cerradas"].sum()
-            backlog_final = temp["backlog"].iloc[-1]
 
-            ranking.append((centro, backlog_final))
-
-            # SEMÁFORO
-            if backlog_final <= 2:
+            # =========================
+            # SEMÁFORO SIMPLE
+            # =========================
+            if total_l - total_c <= 0:
                 estado = "🟢 OK"
-            elif backlog_final <= 5:
-                estado = "🟡 MEDIO"
+            elif total_l - total_c <= 3:
+                estado = "🟡 MEDIA CARGA"
             else:
-                estado = "🔴 CRÍTICO"
+                estado = "🔴 ALTA CARGA"
 
             msg += f"🏢 {centro}\n"
             msg += f"{estado}\n"
             msg += f"📦 Lanzadas: {total_l}\n"
-            msg += f"✅ Cerradas: {total_c}\n"
-            msg += f"📊 Backlog: {backlog_final}\n\n"
+            msg += f"✅ Cerradas: {total_c}\n\n"
 
             # =========================
             # GRAFICA
@@ -161,16 +140,22 @@ def procesar(cid, archivo):
 
             plt.plot(temp["fecha"], temp["lanzadas"], marker="o", label="Lanzadas")
             plt.plot(temp["fecha"], temp["cerradas"], marker="o", label="Cerradas")
-            plt.plot(temp["fecha"], temp["backlog"], marker="o", label="Backlog")
 
-            # etiquetas
+            # =========================
+            # ETIQUETAS LANZADAS
+            # =========================
             for x, y in zip(temp["fecha"], temp["lanzadas"]):
                 plt.text(x, y, str(y), ha="center", va="bottom", fontsize=8)
 
+            # =========================
+            # ETIQUETAS CERRADAS
+            # =========================
             for x, y in zip(temp["fecha"], temp["cerradas"]):
                 plt.text(x, y, str(y), ha="center", va="top", fontsize=8)
 
-            plt.title(f"Dashboard - {centro}")
+            plt.title(f"Órdenes - {centro}")
+            plt.xlabel("Fecha")
+            plt.ylabel("Cantidad")
             plt.xticks(rotation=45)
             plt.grid(True)
             plt.legend()
@@ -184,16 +169,6 @@ def procesar(cid, archivo):
 
             os.remove(img)
 
-        # =========================
-        # RANKING
-        # =========================
-        ranking.sort(key=lambda x: x[1], reverse=True)
-
-        msg += "🏆 *RANKING BACKLOG*\n\n"
-
-        for c, b in ranking:
-            msg += f"{c}: {b}\n"
-
         send_msg(cid, msg)
 
     except Exception as e:
@@ -205,7 +180,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("BOT PRO ACTIVO")
+    print("BOT ACTIVO SIN BACKLOG")
 
     while True:
 
@@ -234,7 +209,7 @@ def main():
 
                 if "document" in m:
 
-                    send_msg(cid, "⌛ Procesando...")
+                    send_msg(cid, "⌛ Procesando archivo...")
 
                     file_id = m["document"]["file_id"]
 
