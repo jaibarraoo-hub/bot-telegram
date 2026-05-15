@@ -49,36 +49,58 @@ def send_doc(cid, path):
         print("Error doc:", e)
 
 # =========================
-# PROCESAR EXCEL
+# PROCESAR EXCEL (TU ESTRUCTURA REAL)
 # =========================
 def procesar(cid, file_path):
-
-    df = pd.read_excel(file_path, engine="openpyxl")
-
-    df.columns = [str(c).strip().lower() for c in df.columns]
-
-    # detectar columnas
-    c_centro = next((c for c in df.columns if "centro" in c), None)
-    c_inicio = next((c for c in df.columns if "inicio" in c or "plan" in c), None)
-    c_fin = next((c for c in df.columns if "fin" in c or "real" in c or "cierre" in c), None)
-
-    if not (c_centro and c_inicio and c_fin):
-        send_msg(cid, f"❌ Faltan columnas: {list(df.columns)}")
+    try:
+        df = pd.read_excel(file_path, engine="openpyxl")
+    except Exception as e:
+        send_msg(cid, f"❌ Error leyendo Excel: {e}")
         return
 
+    # limpiar nombres de columnas
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    # =========================
+    # COLUMNAS FIJAS (TU CASO)
+    # =========================
+    c_centro = "centro"
+    c_inicio = "plan"
+    c_fin = "real"
+
+    # validar columnas
+    if c_centro not in df.columns or c_inicio not in df.columns or c_fin not in df.columns:
+        send_msg(cid, f"❌ Faltan columnas en el Excel:\n{list(df.columns)}")
+        return
+
+    # =========================
+    # CONVERTIR FECHAS
+    # =========================
     df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
     df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
     df = df.dropna(subset=[c_centro, c_inicio])
 
+    # =========================
+    # DÍAS
+    # =========================
     df["dia_inicio"] = df[c_inicio].dt.date
     df["dia_fin"] = df[c_fin].dt.date
 
+    # =========================
+    # LANZADAS
+    # =========================
     lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
 
+    # =========================
+    # CERRADAS
+    # =========================
     cerradas = df.dropna(subset=[c_fin])
     cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
+    # =========================
+    # UNIR
+    # =========================
     rep = pd.merge(
         lanzadas,
         cerradas,
@@ -89,9 +111,11 @@ def procesar(cid, file_path):
 
     rep["lanzadas"] = rep["lanzadas"].astype(int)
     rep["cerradas"] = rep["cerradas"].astype(int)
-
     rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
 
+    # =========================
+    # MENSAJE FINAL
+    # =========================
     msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
 
     for centro in rep[c_centro].unique():
@@ -128,14 +152,17 @@ def main():
             data = r.json()
 
             for u in data.get("result", []):
-
                 offset = u["update_id"] + 1
+
                 m = u.get("message", {})
                 cid = m.get("chat", {}).get("id")
 
                 if not cid:
                     continue
 
+                # =====================
+                # EXCEL
+                # =====================
                 if "document" in m:
                     send_msg(cid, "⌛ Procesando archivo...")
 
@@ -161,8 +188,11 @@ def main():
 
                     os.remove(local)
 
+                # =====================
+                # START
+                # =====================
                 elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envíame tu Excel con órdenes")
+                    send_msg(cid, "📊 Envíame tu Excel con columnas: centro, plan, real")
 
         except Exception as e:
             print("Error loop:", e)
