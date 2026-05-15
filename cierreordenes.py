@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # =========================
 # 🔐 TOKEN DESDE RENDER
 # =========================
-TOKEN = os.environ.get("TOKEN")
+TOKEN = os.environ.get("8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I")
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
