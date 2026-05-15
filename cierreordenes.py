@@ -1,13 +1,17 @@
-import requests
 import os
 import time
+import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# 🔐 TOKEN DESDE RENDER
+# 🔐 TOKEN (SOLO DESDE RENDER)
 # =========================
 TOKEN = os.environ.get("8685699623:AAGmHb1eYQft27I03YLN2yjvWRolOTQFg7I")
+
+if not TOKEN:
+    raise Exception("❌ Falta la variable de entorno TOKEN en Render")
+
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
@@ -41,7 +45,7 @@ def send_doc(cid, path):
         print("Error doc:", e)
 
 # =========================
-# PROCESAMIENTO PRINCIPAL
+# PROCESAR EXCEL
 # =========================
 def procesar(cid, file_path):
 
@@ -49,45 +53,28 @@ def procesar(cid, file_path):
 
     df.columns = [str(c).strip().lower() for c in df.columns]
 
-    # =========================
-    # DETECTAR COLUMNAS
-    # =========================
+    # detectar columnas
     c_centro = next((c for c in df.columns if "centro" in c), None)
     c_inicio = next((c for c in df.columns if "inicio" in c or "plan" in c), None)
     c_fin = next((c for c in df.columns if "fin" in c or "real" in c or "cierre" in c), None)
 
     if not (c_centro and c_inicio and c_fin):
-        send_msg(cid, f"❌ Faltan columnas. Detectadas: {list(df.columns)}")
+        send_msg(cid, f"❌ Faltan columnas: {list(df.columns)}")
         return
 
-    # =========================
-    # FECHAS
-    # =========================
     df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
     df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
-    df = df.dropna(subset=[c_inicio, c_centro])
+    df = df.dropna(subset=[c_centro, c_inicio])
 
-    # =========================
-    # FECHA SOLO DÍA
-    # =========================
     df["dia_inicio"] = df[c_inicio].dt.date
     df["dia_fin"] = df[c_fin].dt.date
 
-    # =========================
-    # ÓRDENES LANZADAS
-    # =========================
     lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
 
-    # =========================
-    # ÓRDENES CERRADAS
-    # =========================
     cerradas = df.dropna(subset=[c_fin])
     cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
-    # =========================
-    # UNIR
-    # =========================
     rep = pd.merge(
         lanzadas,
         cerradas,
@@ -101,13 +88,9 @@ def procesar(cid, file_path):
 
     rep["fecha"] = rep["dia_inicio"].fillna(rep["dia_fin"])
 
-    # =========================
-    # MENSAJE TELEGRAM
-    # =========================
-    msg = "📊 *REPORTE DIARIO POR TIENDA*\n\n"
+    msg = "📊 *REPORTE DIARIO*\n\n"
 
     for centro in rep[c_centro].unique():
-
         temp = rep[rep[c_centro] == centro].sort_values("fecha")
 
         msg += f"🏢 *{centro}*\n"
@@ -125,7 +108,6 @@ def procesar(cid, file_path):
 # BOT LOOP
 # =========================
 def main():
-
     print("🤖 BOT ACTIVO")
 
     offset = 0
@@ -135,8 +117,8 @@ def main():
             r = requests.get(
                 f"{URL}/getUpdates",
                 params={"offset": offset, "timeout": 30},
-                proxies={"http": None, "https": None},
-                timeout=40
+                timeout=40,
+                proxies={"http": None, "https": None}
             )
 
             data = r.json()
@@ -144,18 +126,13 @@ def main():
             for u in data.get("result", []):
 
                 offset = u["update_id"] + 1
-
                 m = u.get("message", {})
                 cid = m.get("chat", {}).get("id")
 
                 if not cid:
                     continue
 
-                # =====================
-                # ARCHIVO EXCEL
-                # =====================
                 if "document" in m:
-
                     send_msg(cid, "⌛ Procesando archivo...")
 
                     file_id = m["document"]["file_id"]
@@ -181,12 +158,11 @@ def main():
                     os.remove(local)
 
                 elif m.get("text") == "/start":
-                    send_msg(cid, "📊 Envíame tu Excel con columnas de órdenes")
+                    send_msg(cid, "📊 Envía tu Excel con órdenes")
 
         except Exception as e:
             print("Error loop:", e)
             time.sleep(5)
 
-# =========================
 if __name__ == "__main__":
     main()
