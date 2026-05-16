@@ -67,12 +67,6 @@ def procesar(cid, archivo):
         df["dia"] = df[c_inicio].dt.date
 
         # =========================
-        # SOLO HASTA HOY
-        # =========================
-        hoy = pd.Timestamp.today().date()
-        df = df[df["dia"] <= hoy]
-
-        # =========================
         # LANZADAS
         # =========================
         lanzadas = df.groupby([c_centro, "dia"]).size().reset_index(name="lanzadas")
@@ -84,43 +78,46 @@ def procesar(cid, archivo):
         cerradas = cerradas_df.groupby([c_centro, "dia"]).size().reset_index(name="cerradas")
 
         # =========================
-        # ATRASADAS
+        # ATRASADAS (SOLO TEXTO)
         # =========================
         abiertas = df[df[c_status] == "LIB. KKMP NLIQ"]
-        abiertas = abiertas.groupby([c_centro, "dia"]).size().reset_index(name="atrasadas")
+        atrasadas_por_centro = abiertas.groupby(c_centro).size().reset_index(name="atrasadas")
 
         # =========================
-        # MERGE
+        # MERGE SOLO PARA GRAFICA
         # =========================
         rep = pd.merge(lanzadas, cerradas, on=[c_centro, "dia"], how="outer")
-        rep = pd.merge(rep, abiertas, on=[c_centro, "dia"], how="outer")
-
         rep = rep.fillna(0)
 
         rep["lanzadas"] = rep["lanzadas"].astype(int)
         rep["cerradas"] = rep["cerradas"].astype(int)
-        rep["atrasadas"] = rep["atrasadas"].astype(int)
 
         # =========================
         # MENSAJE
         # =========================
-        msg = "📊 REPORTE\n\n"
+        msg = "📊 REPORTE DIARIO\n\n"
 
         for c in rep[c_centro].unique():
 
-            t = rep[rep[c_centro] == c].copy()
-
             msg += f"🏢 {c}\n"
 
-            for _, r in t.iterrows():
-                msg += f"{r['dia']} | L:{r['lanzadas']} C:{r['cerradas']} 🔴{r['atrasadas']}\n"
+            lanz = lanzadas[lanzadas[c_centro] == c]["lanzadas"].sum()
+            cerr = cerradas[cerradas[c_centro] == c]["cerradas"].sum()
 
-            msg += "\n"
+            atr = atrasadas_por_centro[atrasadas_por_centro[c_centro] == c]
+
+            atr_val = int(atr["atrasadas"].values[0]) if not atr.empty else 0
+
+            msg += (
+                f"📦 Lanzadas: {lanz}\n"
+                f"✅ Cerradas: {cerr}\n"
+                f"🔴 Atrasadas (total): {atr_val}\n\n"
+            )
 
         send_msg(cid, msg)
 
         # =========================
-        # GRAFICAS (FIX CLAVE AQUÍ)
+        # GRAFICA (SOLO AZUL Y VERDE)
         # =========================
         centros = rep[c_centro].unique()
         mid = math.ceil(len(centros) / 2)
@@ -139,12 +136,6 @@ def procesar(cid, archivo):
 
                 t = rep[rep[c_centro] == c].copy()
 
-                # 🔥 FIX CLAVE: calendario completo por centro
-                all_days = pd.date_range(start=t["dia"].min(), end=t["dia"].max())
-
-                t = t.set_index("dia").reindex(all_days).fillna(0).reset_index()
-                t.rename(columns={"index": "dia"}, inplace=True)
-
                 ax = plt.subplot(rows, 2, i)
 
                 # 🔵 LANZADAS
@@ -152,9 +143,6 @@ def procesar(cid, archivo):
 
                 # 🟢 CERRADAS
                 ax.plot(t["dia"], t["cerradas"], color="green", marker="o", label="Cerradas")
-
-                # 🔴 ATRASADAS
-                ax.plot(t["dia"], t["atrasadas"], color="red", marker="o", label="Atrasadas")
 
                 ax.set_title(c)
                 ax.tick_params(axis="x", rotation=45)
