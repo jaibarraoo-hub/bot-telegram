@@ -13,7 +13,8 @@ import pytz
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise Exception("Falta TOKEN en Render")
+    print("❌ Falta TOKEN en variables de entorno")
+    raise SystemExit(1)
 
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
@@ -28,7 +29,7 @@ def send_msg(cid, text):
             timeout=20
         )
     except Exception as e:
-        print("ERROR MSG:", e)
+        print("MSG ERROR:", e)
 
 def send_photo(cid, path):
     try:
@@ -40,42 +41,26 @@ def send_photo(cid, path):
                 timeout=60
             )
     except Exception as e:
-        print("ERROR PHOTO:", e)
+        print("PHOTO ERROR:", e)
 
 # =========================
-# PROCESAR
+# PROCESO
 # =========================
 def procesar(cid, archivo):
 
     try:
 
-        send_msg(cid, "📥 Leyendo Excel...")
+        send_msg(cid, "📥 Leyendo archivo...")
 
         df = pd.read_excel(archivo, engine="openpyxl")
 
-        # =========================
-        # NORMALIZAR COLUMNAS
-        # =========================
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
-        print("COLUMNAS:", df.columns.tolist())
-
-        # =========================
-        # COLUMNAS
-        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
         c_texto = "texto breve"
         c_status = "status del sistema"
-
-        # =========================
-        # VALIDACIÓN
-        # =========================
-        for c in [c_centro, c_inicio, c_fin]:
-            if c not in df.columns:
-                send_msg(cid, f"❌ Falta columna: {c}")
-                return
 
         # =========================
         # FECHAS
@@ -86,9 +71,10 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS
+        # FILTRO SOLO TRIMESTRALES FUERA
         # =========================
         if c_texto in df.columns:
+
             df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
 
             df = df[
@@ -104,27 +90,11 @@ def procesar(cid, archivo):
         df["dia_fin"] = df[c_fin].dt.date
 
         # =========================
-        # PLAN
+        # PLAN / REAL
         # =========================
-        lanzadas = (
-            df.groupby([c_centro, "dia_inicio"])
-            .size()
-            .reset_index(name="lanzadas")
-        )
+        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
+        cerradas = df.dropna(subset=[c_fin]).groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
 
-        # =========================
-        # REAL
-        # =========================
-        cerradas = (
-            df.dropna(subset=[c_fin])
-            .groupby([c_centro, "dia_fin"])
-            .size()
-            .reset_index(name="cerradas")
-        )
-
-        # =========================
-        # MERGE
-        # =========================
         rep = pd.merge(
             lanzadas,
             cerradas,
@@ -139,7 +109,7 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # ATRASADAS
+        # ATRASADAS (LIB KKMP NLIQ)
         # =========================
         hoy = pd.Timestamp.now().date()
         limite = hoy - pd.Timedelta(days=1)
@@ -151,7 +121,7 @@ def procesar(cid, archivo):
         ]
 
         # =========================
-        # KPI
+        # KPI CUMPLIMIENTO
         # =========================
         cumplimiento = {}
         centros = rep[c_centro].dropna().unique()
@@ -164,7 +134,7 @@ def procesar(cid, archivo):
             cumplimiento[centro] = (total_real / total_plan * 100) if total_plan > 0 else 0
 
         if len(centros) == 0:
-            send_msg(cid, "❌ Sin centros")
+            send_msg(cid, "❌ Sin datos")
             return
 
         # =========================
@@ -172,18 +142,16 @@ def procesar(cid, archivo):
         # =========================
         mid = max(1, math.ceil(len(centros) / 2))
         paginas = [centros[:mid], centros[mid:]]
-        paginas = [p for p in paginas if len(p) > 0]
 
         pagina = 1
 
-        send_msg(cid, "📈 Generando gráficas...")
-
         # =========================
-        # ZONA HORARIA CORRECTA
+        # ZONA HORARIA
         # =========================
-        zona = pytz.timezone("America/Mexico_City")  # ajusta si necesitas
-
+        zona = pytz.timezone("America/Mexico_City")
         fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
+
+        send_msg(cid, "📊 Generando dashboards...")
 
         # =========================
         # GRAFICAS
@@ -191,7 +159,6 @@ def procesar(cid, archivo):
         for grupo in paginas:
 
             plt.close("all")
-            plt.clf()
 
             cols = 2
             rows = math.ceil(len(grupo) / cols)
@@ -199,14 +166,11 @@ def procesar(cid, archivo):
             plt.style.use("seaborn-v0_8-whitegrid")
             fig = plt.figure(figsize=(14, rows * 4))
 
-            # =========================
-            # ENCABEZADO GLOBAL
-            # =========================
+            # ENCABEZADO
             fig.suptitle(
-                f"Dashboard Ejecutivo SAP | Fecha actualización: {fecha_revision}",
-                fontsize=16,
-                fontweight="bold",
-                color="#1f1f1f"
+                f"Dashboard Ejecutivo SAP | Actualización: {fecha_revision}",
+                fontsize=15,
+                fontweight="bold"
             )
 
             for i, centro in enumerate(grupo, 1):
@@ -276,6 +240,7 @@ def procesar(cid, archivo):
 
     except Exception as e:
         send_msg(cid, f"❌ ERROR: {e}")
+        print("ERROR:", e)
 
 # =========================
 # BOT LOOP
@@ -283,11 +248,12 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT ACTIVO")
+    print("🚀 BOT EJECUTIVO RENDER SAFE ACTIVO")
 
     while True:
 
         try:
+
             r = requests.get(
                 f"{URL}/getUpdates",
                 params={"offset": offset, "timeout": 30},
@@ -336,7 +302,7 @@ def main():
 
         except Exception as e:
             print("LOOP ERROR:", e)
-            time.sleep(5)
+            time.sleep(3)
 
 if __name__ == "__main__":
     main()
