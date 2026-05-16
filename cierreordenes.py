@@ -16,7 +16,7 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# MENSAJES
+# TELEGRAM
 # =========================
 def send_msg(cid, text):
     try:
@@ -26,7 +26,7 @@ def send_msg(cid, text):
             timeout=20
         )
     except Exception as e:
-        print("ERROR MSG:", e)
+        print("MSG ERROR:", e)
 
 def send_photo(cid, path):
     try:
@@ -38,7 +38,7 @@ def send_photo(cid, path):
                 timeout=60
             )
     except Exception as e:
-        print("ERROR PHOTO:", e)
+        print("PHOTO ERROR:", e)
 
 # =========================
 # PROCESAR EXCEL
@@ -50,17 +50,13 @@ def procesar(cid, archivo):
         df = pd.read_excel(archivo, engine="openpyxl")
 
         # normalizar columnas
-        df.columns = (
-            df.columns
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
+        df.columns = df.columns.astype(str).str.strip().str.lower()
 
+        # columnas base
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
-        c_texto = "texto breve"
+        c_estatus = "estatus del sistema"
 
         # =========================
         # FECHAS
@@ -71,194 +67,127 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS
+        # DIAS
         # =========================
-        if c_texto in df.columns:
-
-            df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
-
-            df = df[~df[c_texto].str.startswith("insp. semanal")]
-            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
-
-        # =========================
-        # FECHAS DIA
-        # =========================
-        df["dia_inicio"] = df[c_inicio].dt.date
-        df["dia_fin"] = df[c_fin].dt.date
+        df["dia"] = df[c_inicio].dt.date
 
         # =========================
         # LANZADAS
         # =========================
-        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
+        lanzadas = df.groupby([c_centro, "dia"]).size().reset_index(name="lanzadas")
 
         # =========================
         # CERRADAS
         # =========================
-        cerradas = df.dropna(subset=[c_fin])
-        cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
+        cerradas_df = df.dropna(subset=[c_fin])
+        cerradas = cerradas_df.groupby([c_centro, "dia"]).size().reset_index(name="cerradas")
+
+        # =========================
+        # ATRASADAS (NO ACUMULADAS)
+        # =========================
+        abiertas = df[df[c_estatus] == "LIB. KKMP NLIQ"]
+
+        abiertas = abiertas.groupby([c_centro, "dia"]).size().reset_index(name="atrasadas")
 
         # =========================
         # MERGE
         # =========================
-        rep = pd.merge(
-            lanzadas,
-            cerradas,
-            left_on=[c_centro, "dia_inicio"],
-            right_on=[c_centro, "dia_fin"],
-            how="outer"
-        )
+        rep = pd.merge(lanzadas, cerradas, on=[c_centro, "dia"], how="outer")
+        rep = pd.merge(rep, abiertas, on=[c_centro, "dia"], how="outer")
 
-        rep["lanzadas"] = rep["lanzadas"].fillna(0).astype(int)
-        rep["cerradas"] = rep["cerradas"].fillna(0).astype(int)
+        rep = rep.fillna(0)
 
-        rep["fecha"] = rep["dia_inicio"].combine_first(rep["dia_fin"])
-
-        rep = rep.dropna(subset=["fecha"])
+        rep["lanzadas"] = rep["lanzadas"].astype(int)
+        rep["cerradas"] = rep["cerradas"].astype(int)
+        rep["atrasadas"] = rep["atrasadas"].astype(int)
 
         # =========================
         # MENSAJE
         # =========================
         msg = "📊 REPORTE DIARIO\n\n"
 
-        centros = rep[c_centro].dropna().unique()
-
-        msg += f"Total centros: {len(centros)}\n\n"
-
-        for centro in centros:
+        for centro in rep[c_centro].unique():
 
             temp = rep[rep[c_centro] == centro].copy()
-            temp = temp.sort_values("fecha")
+            temp = temp.sort_values("dia")
 
-            total_l = temp["lanzadas"].sum()
-            total_c = temp["cerradas"].sum()
+            msg += f"🏢 {centro}\n\n"
 
-            estado = "🟢 OK"
-            if total_l - total_c > 3:
-                estado = "🔴 ALTA CARGA"
-            elif total_l - total_c > 0:
-                estado = "🟡 MEDIA"
+            for _, r in temp.iterrows():
 
-            msg += f"🏢 {centro}\n"
-            msg += f"{estado}\n"
-            msg += f"📦 Lanzadas: {total_l}\n"
-            msg += f"✅ Cerradas: {total_c}\n\n"
+                msg += (
+                    f"📅 {r['dia']}\n"
+                    f"📦 Lanzadas: {r['lanzadas']}\n"
+                    f"✅ Cerradas: {r['cerradas']}\n"
+                    f"🔴 Atrasadas: {r['atrasadas']}\n\n"
+                )
 
         send_msg(cid, msg)
 
         # =========================
-        # DASHBOARD 2 PÁGINAS
+        # DASHBOARD 2 PÁGINAS (SIN DUPLICAR)
         # =========================
-        centros = rep[c_centro].dropna().unique()
+        centros = rep[c_centro].unique()
         mid = math.ceil(len(centros) / 2)
 
-        paginas = [
-            centros[:mid],
-            centros[mid:]
-        ]
+        paginas = [centros[:mid], centros[mid:]]
 
         pagina = 1
 
         for grupo in paginas:
 
-            cols = 2
-            rows = math.ceil(len(grupo) / cols)
+            rows = math.ceil(len(grupo) / 2)
 
             plt.style.use("seaborn-v0_8-whitegrid")
-
             plt.figure(figsize=(14, rows * 4))
 
             for i, centro in enumerate(grupo, 1):
 
                 temp = rep[rep[c_centro] == centro].copy()
-                temp = temp.sort_values("fecha")
+                temp = temp.sort_values("dia")
 
-                ax = plt.subplot(rows, cols, i)
+                ax = plt.subplot(rows, 2, i)
                 ax.set_facecolor("#f7f9fc")
 
                 # =========================
-                # LÍNEAS PRO
+                # LÍNEAS
                 # =========================
-                ax.plot(
-                    temp["fecha"],
-                    temp["lanzadas"],
-                    marker="o",
-                    linewidth=2.5,
-                    color="#1f77b4",
-                    markersize=5,
-                    label="Lanzadas"
-                )
+                ax.plot(temp["dia"], temp["lanzadas"],
+                        marker="o", color="#1f77b4", linewidth=2.5, label="Lanzadas")
 
-                ax.plot(
-                    temp["fecha"],
-                    temp["cerradas"],
-                    marker="o",
-                    linewidth=2.5,
-                    color="#2ca02c",
-                    markersize=5,
-                    label="Cerradas"
-                )
+                ax.plot(temp["dia"], temp["cerradas"],
+                        marker="o", color="#2ca02c", linewidth=2.5, label="Cerradas")
+
+                ax.plot(temp["dia"], temp["atrasadas"],
+                        marker="o", color="red", linewidth=2.5, label="Atrasadas")
 
                 # =========================
-                # ETIQUETAS PRO (SIN SOLAPES)
+                # ETIQUETAS LIMPIAS
                 # =========================
-                offsets = [0.6, 1.0, 1.4]
-
-                for j, (x, y) in enumerate(zip(temp["fecha"], temp["lanzadas"])):
-
-                    ax.text(
-                        x,
-                        y + offsets[j % 3],
-                        str(y),
-                        fontsize=7,
-                        ha="center",
-                        color="#1f77b4",
-                        bbox=dict(
-                            facecolor="white",
-                            edgecolor="none",
-                            alpha=0.75,
-                            boxstyle="round,pad=0.2"
+                for x, y in zip(temp["dia"], temp["atrasadas"]):
+                    if y > 0:
+                        ax.text(
+                            x,
+                            y + 0.4,
+                            str(y),
+                            fontsize=8,
+                            ha="center",
+                            color="red",
+                            bbox=dict(facecolor="white", alpha=0.7, boxstyle="round")
                         )
-                    )
 
-                for j, (x, y) in enumerate(zip(temp["fecha"], temp["cerradas"])):
-
-                    ax.text(
-                        x,
-                        y - offsets[j % 3],
-                        str(y),
-                        fontsize=7,
-                        ha="center",
-                        color="#2ca02c",
-                        bbox=dict(
-                            facecolor="white",
-                            edgecolor="none",
-                            alpha=0.75,
-                            boxstyle="round,pad=0.2"
-                        )
-                    )
-
-                # =========================
-                # TÍTULO PRO
-                # =========================
-                ax.set_title(
-                    f"📊 Dashboard Operativo - {centro}",
-                    fontsize=11,
-                    fontweight="bold"
-                )
-
+                ax.set_title(f"📊 Dashboard - {centro}", fontweight="bold")
                 ax.tick_params(axis='x', rotation=45)
-                ax.grid(True, alpha=0.3)
+                ax.grid(alpha=0.3)
                 ax.legend()
 
             plt.tight_layout()
 
             img = f"dashboard_{pagina}.png"
-
             plt.savefig(img, dpi=150)
             plt.close()
 
             send_photo(cid, img)
-
             os.remove(img)
 
             pagina += 1
@@ -272,7 +201,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT DASHBOARD PRO FINAL ACTIVO")
+    print("🚀 BOT FINAL ACTIVO")
 
     while True:
 
