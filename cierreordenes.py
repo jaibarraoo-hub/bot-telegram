@@ -82,48 +82,35 @@ def procesar(cid, archivo):
         # =========================
         # DIAS
         # =========================
-        df["dia_inicio"] = df[c_inicio].dt.date
-        df["dia_fin"] = df[c_fin].dt.date
+        df["fecha"] = df[c_inicio].dt.date
 
         # =========================
         # LANZADAS
         # =========================
-        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
+        lanzadas = df.groupby([c_centro, "fecha"]).size().reset_index(name="lanzadas")
 
         # =========================
         # CERRADAS
         # =========================
         cerradas = df.dropna(subset=[c_fin])
-        cerradas = cerradas.groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
+        cerradas = cerradas.groupby([c_centro, "fecha"]).size().reset_index(name="cerradas")
 
         # =========================
         # MERGE
         # =========================
-        rep = pd.merge(
-            lanzadas,
-            cerradas,
-            left_on=[c_centro, "dia_inicio"],
-            right_on=[c_centro, "dia_fin"],
-            how="outer"
-        )
+        rep = pd.merge(lanzadas, cerradas, on=[c_centro, "fecha"], how="outer")
 
         rep["lanzadas"] = rep["lanzadas"].fillna(0).astype(int)
         rep["cerradas"] = rep["cerradas"].fillna(0).astype(int)
 
-        rep["fecha"] = rep["dia_inicio"].combine_first(rep["dia_fin"])
-
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # MENSAJE TEXTO
+        # MENSAJE
         # =========================
         msg = "📊 REPORTE DIARIO\n\n"
 
-        centros = rep[c_centro].dropna().unique()
-
-        msg += f"Total centros: {len(centros)}\n\n"
-
-        for centro in centros:
+        for centro in rep[c_centro].unique():
 
             temp = rep[rep[c_centro] == centro].copy()
             temp = temp.sort_values("fecha")
@@ -145,15 +132,12 @@ def procesar(cid, archivo):
         send_msg(cid, msg)
 
         # =========================
-        # DASHBOARD 2 PÁGINAS
+        # DASHBOARD
         # =========================
         centros = rep[c_centro].dropna().unique()
         mid = math.ceil(len(centros) / 2)
 
-        paginas = [
-            centros[:mid],
-            centros[mid:]
-        ]
+        paginas = [centros[:mid], centros[mid:]]
 
         pagina = 1
 
@@ -163,7 +147,6 @@ def procesar(cid, archivo):
             rows = math.ceil(len(grupo) / cols)
 
             plt.style.use("seaborn-v0_8-whitegrid")
-
             plt.figure(figsize=(14, rows * 4))
 
             for i, centro in enumerate(grupo, 1):
@@ -175,7 +158,7 @@ def procesar(cid, archivo):
                 ax.set_facecolor("#f7f9fc")
 
                 # =========================
-                # LÍNEAS PRO
+                # LÍNEAS
                 # =========================
                 ax.plot(
                     temp["fecha"],
@@ -198,32 +181,41 @@ def procesar(cid, archivo):
                 )
 
                 # =========================
-                # ETIQUETAS SIN CHOQUE
+                # ETIQUETAS AZULES
                 # =========================
                 for x, y in zip(temp["fecha"], temp["lanzadas"]):
 
                     ax.text(
                         x,
-                        y + 0.5,   # arriba
+                        y + 0.5,
                         str(y),
                         fontsize=7,
                         ha="center",
                         color="#1f77b4"
                     )
 
+                # =========================
+                # 🔥 FIX DEFINITIVO VERDE (NO SE TAPAN)
+                # =========================
                 for x, y in zip(temp["fecha"], temp["cerradas"]):
 
                     ax.text(
                         x,
-                        y - 0.7,   # abajo para evitar línea verde
+                        y - 0.9,   # separación segura
                         str(y),
                         fontsize=7,
                         ha="center",
-                        color="#2ca02c"
+                        color="#2ca02c",
+                        bbox=dict(
+                            facecolor="white",
+                            edgecolor="none",
+                            alpha=0.75,
+                            boxstyle="round,pad=0.2"
+                        )
                     )
 
                 # =========================
-                # TÍTULO PRO
+                # TÍTULO
                 # =========================
                 ax.set_title(
                     f"📊 Dashboard Operativo - {centro}",
@@ -243,7 +235,6 @@ def procesar(cid, archivo):
             plt.close()
 
             send_photo(cid, img)
-
             os.remove(img)
 
             pagina += 1
