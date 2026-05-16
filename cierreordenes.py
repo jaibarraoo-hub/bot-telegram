@@ -272,19 +272,6 @@ def procesar(cid, archivo):
             cumplimiento[centro] = pct
 
         # =========================
-        # MEJOR / PEOR
-        # =========================
-        mejor_centro = max(
-            cumplimiento,
-            key=cumplimiento.get
-        )
-
-        peor_centro = min(
-            cumplimiento,
-            key=cumplimiento.get
-        )
-
-        # =========================
         # VALIDAR
         # =========================
         if len(centros) == 0:
@@ -364,28 +351,13 @@ def procesar(cid, archivo):
                     i
                 )
 
-                ax.set_facecolor(
-                    "#f7f9fc"
-                )
+                ax.set_facecolor("#f7f9fc")
 
                 # =========================
-                # MEJOR / PEOR VISUAL
+                # BORDE NORMAL
                 # =========================
-                if centro == mejor_centro:
-
-                    ax.patch.set_edgecolor(
-                        "green"
-                    )
-
-                    ax.patch.set_linewidth(5)
-
-                elif centro == peor_centro:
-
-                    ax.patch.set_edgecolor(
-                        "red"
-                    )
-
-                    ax.patch.set_linewidth(5)
+                ax.patch.set_edgecolor("#d9d9d9")
+                ax.patch.set_linewidth(1.5)
 
                 # =========================
                 # PLAN
@@ -514,21 +486,10 @@ def procesar(cid, archivo):
                     1
                 )
 
-                etiqueta = ""
-
-                if centro == mejor_centro:
-                    etiqueta = "🏆 Mejor Centro"
-
-                elif centro == peor_centro:
-                    etiqueta = "🚨 Centro Crítico"
-
                 ax.text(
                     0.98,
                     0.95,
-                    (
-                        f"{etiqueta}\n"
-                        f"📈 Cumplimiento: {pct}%"
-                    ),
+                    f"📈 Cumplimiento: {pct}%",
                     transform=ax.transAxes,
                     fontsize=9,
                     ha="right",
