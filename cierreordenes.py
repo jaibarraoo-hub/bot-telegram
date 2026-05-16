@@ -88,7 +88,7 @@ def procesar(cid, archivo):
         c_texto = "texto breve"
 
         # =========================
-        # VALIDAR
+        # VALIDAR COLUMNAS
         # =========================
         faltantes = []
 
@@ -140,14 +140,14 @@ def procesar(cid, archivo):
                 .str.strip()
             )
 
-            # excluir semanal
+            # EXCLUIR SEMANALES
             df = df[
                 ~df[c_texto].str.startswith(
                     "insp. semanal"
                 )
             ]
 
-            # excluir trimestral
+            # EXCLUIR TRIMESTRALES
             df = df[
                 ~df[c_texto].str.startswith(
                     "rev. estructura y pintura trimestral"
@@ -155,7 +155,7 @@ def procesar(cid, archivo):
             ]
 
         # =========================
-        # PLAN
+        # 🔵 PLAN
         # =========================
         df["dia_inicio"] = (
             df[c_inicio].dt.date
@@ -170,7 +170,7 @@ def procesar(cid, archivo):
         )
 
         # =========================
-        # REAL
+        # 🟢 REAL
         # =========================
         df["dia_fin"] = (
             df[c_fin].dt.date
@@ -211,7 +211,6 @@ def procesar(cid, archivo):
             .astype(int)
         )
 
-        # fecha final dashboard
         rep["fecha"] = (
             rep["dia_inicio"]
             .combine_first(rep["dia_fin"])
@@ -234,64 +233,11 @@ def procesar(cid, archivo):
             return
 
         # =========================
-        # TEXTO
-        # =========================
-        msg = "📊 REPORTE PLAN VS REAL\n\n"
-
-        centros = (
-            rep[c_centro]
-            .dropna()
-            .unique()
-        )
-
-        msg += (
-            f"🏢 Centros detectados: "
-            f"{len(centros)}\n\n"
-        )
-
-        for centro in centros:
-
-            temp = rep[
-                rep[c_centro] == centro
-            ]
-
-            total_plan = (
-                temp["lanzadas"]
-                .sum()
-            )
-
-            total_real = (
-                temp["cerradas"]
-                .sum()
-            )
-
-            diferencia = (
-                total_plan - total_real
-            )
-
-            estado = "🟢 OK"
-
-            if diferencia > 3:
-                estado = "🔴 ALTA CARGA"
-
-            elif diferencia > 0:
-                estado = "🟡 MEDIA"
-
-            msg += (
-                f"🏢 {centro}\n"
-                f"{estado}\n"
-                f"🔵 Plan: {total_plan}\n"
-                f"🟢 Real: {total_real}\n\n"
-            )
-
-        send_msg(cid, msg)
-
-        # =========================
         # DASHBOARD
         # =========================
         send_msg(
             cid,
-            "📈 Generando dashboard..."
+            "📈 Generando gráficas..."
         )
 
         centros = (
@@ -405,7 +351,7 @@ def procesar(cid, archivo):
                     )
 
                     # =========================
-                    # ETIQUETAS PLAN
+                    # NUMEROS AZULES
                     # =========================
                     for x, y in zip(
                         temp["fecha"],
@@ -422,7 +368,7 @@ def procesar(cid, archivo):
                         )
 
                     # =========================
-                    # ETIQUETAS REAL
+                    # NUMEROS VERDES
                     # =========================
                     for x, y in zip(
                         temp["fecha"],
