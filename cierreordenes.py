@@ -51,7 +51,7 @@ def send_photo(cid, path):
         print("ERROR PHOTO:", e)
 
 # =========================
-# PROCESAR
+# PROCESAR EXCEL
 # =========================
 def procesar(cid, archivo):
 
@@ -77,7 +77,6 @@ def procesar(cid, archivo):
             .str.lower()
         )
 
-        print("COLUMNAS:")
         print(df.columns.tolist())
 
         # =========================
@@ -89,7 +88,7 @@ def procesar(cid, archivo):
         c_texto = "texto breve"
 
         # =========================
-        # VALIDAR COLUMNAS
+        # VALIDAR
         # =========================
         faltantes = []
 
@@ -123,7 +122,7 @@ def procesar(cid, archivo):
         )
 
         # =========================
-        # LIMPIAR NULOS
+        # LIMPIAR
         # =========================
         df = df.dropna(
             subset=[c_centro, c_inicio]
@@ -141,11 +140,14 @@ def procesar(cid, archivo):
                 .str.strip()
             )
 
-            # excluir
+            # excluir semanal
             df = df[
-                ~df[c_texto].str.startswith("insp. semanal")
+                ~df[c_texto].str.startswith(
+                    "insp. semanal"
+                )
             ]
 
+            # excluir trimestral
             df = df[
                 ~df[c_texto].str.startswith(
                     "rev. estructura y pintura trimestral"
@@ -153,41 +155,47 @@ def procesar(cid, archivo):
             ]
 
         # =========================
-        # FECHA BASE
+        # PLAN
         # =========================
-        df["fecha"] = df[c_inicio].dt.date
-
-        # =========================
-        # LANZADAS
-        # =========================
-        send_msg(cid, "📦 Calculando lanzadas...")
+        df["dia_inicio"] = (
+            df[c_inicio].dt.date
+        )
 
         lanzadas = (
-            df.groupby([c_centro, "fecha"])
+            df.groupby(
+                [c_centro, "dia_inicio"]
+            )
             .size()
             .reset_index(name="lanzadas")
         )
 
         # =========================
-        # CERRADAS
+        # REAL
         # =========================
-        send_msg(cid, "✅ Calculando cerradas...")
+        df["dia_fin"] = (
+            df[c_fin].dt.date
+        )
 
-        cerradas = df.dropna(subset=[c_fin])
+        cerradas = df.dropna(
+            subset=[c_fin]
+        )
 
         cerradas = (
-            cerradas.groupby([c_centro, "fecha"])
+            cerradas.groupby(
+                [c_centro, "dia_fin"]
+            )
             .size()
             .reset_index(name="cerradas")
         )
 
         # =========================
-        # MERGE
+        # MERGE PLAN VS REAL
         # =========================
         rep = pd.merge(
             lanzadas,
             cerradas,
-            on=[c_centro, "fecha"],
+            left_on=[c_centro, "dia_inicio"],
+            right_on=[c_centro, "dia_fin"],
             how="outer"
         )
 
@@ -203,16 +211,14 @@ def procesar(cid, archivo):
             .astype(int)
         )
 
-        rep = rep.dropna(subset=["fecha"])
+        # fecha final dashboard
+        rep["fecha"] = (
+            rep["dia_inicio"]
+            .combine_first(rep["dia_fin"])
+        )
 
-        # =========================
-        # DEBUG
-        # =========================
-        print(rep.head())
-
-        send_msg(
-            cid,
-            f"📊 Registros para dashboard: {len(rep)}"
+        rep = rep.dropna(
+            subset=["fecha"]
         )
 
         # =========================
@@ -228,13 +234,20 @@ def procesar(cid, archivo):
             return
 
         # =========================
-        # REPORTE TEXTO
+        # TEXTO
         # =========================
-        msg = "📊 REPORTE DIARIO\n\n"
+        msg = "📊 REPORTE PLAN VS REAL\n\n"
 
-        centros = rep[c_centro].dropna().unique()
+        centros = (
+            rep[c_centro]
+            .dropna()
+            .unique()
+        )
 
-        msg += f"🏢 Centros detectados: {len(centros)}\n\n"
+        msg += (
+            f"🏢 Centros detectados: "
+            f"{len(centros)}\n\n"
+        )
 
         for centro in centros:
 
@@ -242,22 +255,33 @@ def procesar(cid, archivo):
                 rep[c_centro] == centro
             ]
 
-            total_l = temp["lanzadas"].sum()
-            total_c = temp["cerradas"].sum()
+            total_plan = (
+                temp["lanzadas"]
+                .sum()
+            )
+
+            total_real = (
+                temp["cerradas"]
+                .sum()
+            )
+
+            diferencia = (
+                total_plan - total_real
+            )
 
             estado = "🟢 OK"
 
-            if total_l - total_c > 3:
+            if diferencia > 3:
                 estado = "🔴 ALTA CARGA"
 
-            elif total_l - total_c > 0:
+            elif diferencia > 0:
                 estado = "🟡 MEDIA"
 
             msg += (
                 f"🏢 {centro}\n"
                 f"{estado}\n"
-                f"📦 Lanzadas: {total_l}\n"
-                f"✅ Cerradas: {total_c}\n\n"
+                f"🔵 Plan: {total_plan}\n"
+                f"🟢 Real: {total_real}\n\n"
             )
 
         send_msg(cid, msg)
@@ -265,9 +289,16 @@ def procesar(cid, archivo):
         # =========================
         # DASHBOARD
         # =========================
-        send_msg(cid, "📈 Generando dashboard...")
+        send_msg(
+            cid,
+            "📈 Generando dashboard..."
+        )
 
-        centros = rep[c_centro].dropna().unique()
+        centros = (
+            rep[c_centro]
+            .dropna()
+            .unique()
+        )
 
         if len(centros) == 0:
 
@@ -283,7 +314,9 @@ def procesar(cid, archivo):
         # =========================
         mid = max(
             1,
-            math.ceil(len(centros) / 2)
+            math.ceil(
+                len(centros) / 2
+            )
         )
 
         paginas = [
@@ -305,7 +338,6 @@ def procesar(cid, archivo):
 
             try:
 
-                # limpiar memoria
                 plt.close("all")
                 plt.clf()
 
@@ -314,14 +346,17 @@ def procesar(cid, archivo):
                     len(grupo) / cols
                 )
 
-                fig = plt.figure(
-                    figsize=(14, rows * 4)
-                )
-
                 plt.style.use(
                     "seaborn-v0_8-whitegrid"
                 )
 
+                fig = plt.figure(
+                    figsize=(14, rows * 4)
+                )
+
+                # =========================
+                # LOOP CENTROS
+                # =========================
                 for i, centro in enumerate(grupo, 1):
 
                     temp = rep[
@@ -346,7 +381,7 @@ def procesar(cid, archivo):
                     )
 
                     # =========================
-                    # AZUL
+                    # 🔵 PLAN
                     # =========================
                     ax.plot(
                         temp["fecha"],
@@ -354,11 +389,11 @@ def procesar(cid, archivo):
                         marker="o",
                         linewidth=2.5,
                         color="#1f77b4",
-                        label="Lanzadas"
+                        label="Plan"
                     )
 
                     # =========================
-                    # VERDE
+                    # 🟢 REAL
                     # =========================
                     ax.plot(
                         temp["fecha"],
@@ -366,11 +401,11 @@ def procesar(cid, archivo):
                         marker="o",
                         linewidth=2.5,
                         color="#2ca02c",
-                        label="Cerradas"
+                        label="Real"
                     )
 
                     # =========================
-                    # ETIQUETAS
+                    # ETIQUETAS PLAN
                     # =========================
                     for x, y in zip(
                         temp["fecha"],
@@ -386,6 +421,9 @@ def procesar(cid, archivo):
                             color="#1f77b4"
                         )
 
+                    # =========================
+                    # ETIQUETAS REAL
+                    # =========================
                     for x, y in zip(
                         temp["fecha"],
                         temp["cerradas"]
@@ -406,8 +444,11 @@ def procesar(cid, archivo):
                             )
                         )
 
+                    # =========================
+                    # TITULO
+                    # =========================
                     ax.set_title(
-                        f"📊 {centro}",
+                        f"📊 Plan vs Real - {centro}",
                         fontsize=11,
                         fontweight="bold"
                     )
@@ -426,7 +467,9 @@ def procesar(cid, archivo):
 
                 plt.tight_layout()
 
-                img = f"dashboard_{pagina}.png"
+                img = (
+                    f"dashboard_{pagina}.png"
+                )
 
                 plt.savefig(
                     img,
@@ -446,7 +489,8 @@ def procesar(cid, archivo):
 
                 send_msg(
                     cid,
-                    f"❌ Error gráfica página {pagina}: {e}"
+                    f"❌ Error gráfica página "
+                    f"{pagina}: {e}"
                 )
 
     except Exception as e:
@@ -457,13 +501,13 @@ def procesar(cid, archivo):
         )
 
 # =========================
-# LOOP BOT
+# BOT LOOP
 # =========================
 def main():
 
     offset = 0
 
-    print("🚀 BOT ACTIVO")
+    print("🚀 BOT PLAN VS REAL ACTIVO")
 
     while True:
 
@@ -480,13 +524,19 @@ def main():
 
             data = r.json()
 
-            for u in data.get("result", []):
+            for u in data.get(
+                "result",
+                []
+            ):
 
                 offset = (
                     u["update_id"] + 1
                 )
 
-                m = u.get("message", {})
+                m = u.get(
+                    "message",
+                    {}
+                )
 
                 cid = (
                     m.get("chat", {})
@@ -507,7 +557,7 @@ def main():
                     )
 
                 # =========================
-                # ARCHIVO
+                # DOCUMENTO
                 # =========================
                 if "document" in m:
 
@@ -543,7 +593,9 @@ def main():
                     local = "temp.xlsx"
 
                     with open(local, "wb") as f:
-                        f.write(data_file.content)
+                        f.write(
+                            data_file.content
+                        )
 
                     procesar(cid, local)
 
@@ -551,7 +603,10 @@ def main():
 
         except Exception as e:
 
-            print("LOOP ERROR:", e)
+            print(
+                "LOOP ERROR:",
+                e
+            )
 
             time.sleep(5)
 
