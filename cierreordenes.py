@@ -5,271 +5,183 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# =========================
-# TOKEN
-# =========================
 TOKEN = os.getenv("TOKEN")
-
-if not TOKEN:
-    raise Exception("Falta TOKEN en Render")
-
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
 # TELEGRAM
 # =========================
 def send_msg(cid, text):
-    try:
-        requests.post(
-            f"{URL}/sendMessage",
-            json={"chat_id": cid, "text": text},
-            timeout=20
-        )
-    except Exception as e:
-        print("MSG ERROR:", e)
+    requests.post(f"{URL}/sendMessage",
+                  json={"chat_id": cid, "text": text})
 
 def send_photo(cid, path):
-    try:
-        with open(path, "rb") as img:
-            requests.post(
-                f"{URL}/sendPhoto",
-                data={"chat_id": cid},
-                files={"photo": img},
-                timeout=60
-            )
-    except Exception as e:
-        print("PHOTO ERROR:", e)
+    with open(path, "rb") as f:
+        requests.post(f"{URL}/sendPhoto",
+                      data={"chat_id": cid},
+                      files={"photo": f})
 
 # =========================
-# PROCESAR EXCEL
+# PROCESAR
 # =========================
 def procesar(cid, archivo):
 
-    try:
+    df = pd.read_excel(archivo, engine="openpyxl")
+    df.columns = df.columns.str.strip().str.lower()
 
-        df = pd.read_excel(archivo, engine="openpyxl")
+    c_centro = "centro"
+    c_inicio = "fecha de inicio extrema"
+    c_fin = "fecha real de fin de la orden"
+    c_status = "status del sistema"
 
-        # normalizar columnas
-        df.columns = df.columns.astype(str).str.strip().str.lower()
+    # =========================
+    # FECHAS
+    # =========================
+    df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
+    df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
 
-        # =========================
-        # COLUMNAS
-        # =========================
-        c_centro = "centro"
-        c_inicio = "fecha de inicio extrema"
-        c_fin = "fecha real de fin de la orden"
-        c_status = "status del sistema"
-        c_texto = "texto breve"
+    df = df.dropna(subset=[c_centro, c_inicio])
 
-        # =========================
-        # FECHAS
-        # =========================
-        df[c_inicio] = pd.to_datetime(df[c_inicio], errors="coerce")
-        df[c_fin] = pd.to_datetime(df[c_fin], errors="coerce")
+    df["dia"] = df[c_inicio].dt.date
 
-        df = df.dropna(subset=[c_centro, c_inicio])
+    # =========================
+    # 🔥 SOLO HASTA HOY
+    # =========================
+    hoy = pd.Timestamp.today().date()
+    df = df[df["dia"] <= hoy]
 
-        # =========================
-        # FILTROS
-        # =========================
-        if c_texto in df.columns:
+    # =========================
+    # LANZADAS (AZUL)
+    # =========================
+    lanzadas = df.groupby([c_centro, "dia"]).size().reset_index(name="lanzadas")
 
-            df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
+    # =========================
+    # CERRADAS (VERDE)
+    # =========================
+    cerradas_df = df.dropna(subset=[c_fin])
+    cerradas = cerradas_df.groupby([c_centro, "dia"]).size().reset_index(name="cerradas")
 
-            df = df[~df[c_texto].str.startswith("insp. semanal")]
-            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
+    # =========================
+    # ATRASADAS (ROJO - SOLO HOY HACIA ATRÁS)
+    # =========================
+    abiertas = df[df[c_status] == "LIB. KKMP NLIQ"]
+    abiertas = abiertas.groupby([c_centro, "dia"]).size().reset_index(name="atrasadas")
 
-        # =========================
-        # DÍA
-        # =========================
-        df["dia"] = df[c_inicio].dt.date
+    # =========================
+    # MERGE SEGURO
+    # =========================
+    rep = pd.merge(lanzadas, cerradas, on=[c_centro, "dia"], how="outer")
+    rep = pd.merge(rep, abiertas, on=[c_centro, "dia"], how="outer")
 
-        # =========================
-        # LANZADAS
-        # =========================
-        lanzadas = df.groupby([c_centro, "dia"]).size().reset_index(name="lanzadas")
+    rep = rep.fillna(0)
 
-        # =========================
-        # CERRADAS
-        # =========================
-        cerradas_df = df.dropna(subset=[c_fin])
-        cerradas = cerradas_df.groupby([c_centro, "dia"]).size().reset_index(name="cerradas")
+    rep["lanzadas"] = rep["lanzadas"].astype(int)
+    rep["cerradas"] = rep["cerradas"].astype(int)
+    rep["atrasadas"] = rep["atrasadas"].astype(int)
 
-        # =========================
-        # ATRASADAS (STATUS CORRECTO)
-        # =========================
-        abiertas = df[df[c_status] == "LIB. KKMP NLIQ"]
-        abiertas = abiertas.groupby([c_centro, "dia"]).size().reset_index(name="atrasadas")
+    # =========================
+    # MENSAJE
+    # =========================
+    msg = "📊 REPORTE\n\n"
 
-        # =========================
-        # MERGE
-        # =========================
-        rep = pd.merge(lanzadas, cerradas, on=[c_centro, "dia"], how="outer")
-        rep = pd.merge(rep, abiertas, on=[c_centro, "dia"], how="outer")
+    for c in rep[c_centro].unique():
 
-        rep = rep.fillna(0)
+        t = rep[rep[c_centro] == c].sort_values("dia")
 
-        rep["lanzadas"] = rep["lanzadas"].astype(int)
-        rep["cerradas"] = rep["cerradas"].astype(int)
-        rep["atrasadas"] = rep["atrasadas"].astype(int)
+        msg += f"🏢 {c}\n"
 
-        # =========================
-        # MENSAJE
-        # =========================
-        msg = "📊 REPORTE DIARIO\n\n"
+        for _, r in t.iterrows():
+            msg += f"{r['dia']} | L:{r['lanzadas']} C:{r['cerradas']} 🔴{r['atrasadas']}\n"
 
-        for centro in rep[c_centro].unique():
+        msg += "\n"
 
-            temp = rep[rep[c_centro] == centro].copy()
-            temp = temp.sort_values("dia")
+    send_msg(cid, msg)
 
-            msg += f"🏢 {centro}\n\n"
+    # =========================
+    # GRAFICA
+    # =========================
+    centros = rep[c_centro].unique()
+    mid = math.ceil(len(centros) / 2)
 
-            for _, r in temp.iterrows():
+    paginas = [centros[:mid], centros[mid:]]
 
-                msg += (
-                    f"📅 {r['dia']}\n"
-                    f"📦 Lanzadas: {r['lanzadas']}\n"
-                    f"✅ Cerradas: {r['cerradas']}\n"
-                    f"🔴 Atrasadas: {r['atrasadas']}\n\n"
-                )
+    page = 1
 
-        send_msg(cid, msg)
+    for grupo in paginas:
 
-        # =========================
-        # DASHBOARD 2 PÁGINAS (SIN DUPLICAR)
-        # =========================
-        centros = rep[c_centro].unique()
-        mid = math.ceil(len(centros) / 2)
+        plt.style.use("seaborn-v0_8-whitegrid")
+        rows = math.ceil(len(grupo) / 2)
+        plt.figure(figsize=(14, rows * 4))
 
-        paginas = [centros[:mid], centros[mid:]]
+        for i, c in enumerate(grupo, 1):
 
-        pagina = 1
+            t = rep[rep[c_centro] == c].sort_values("dia")
 
-        for grupo in paginas:
+            ax = plt.subplot(rows, 2, i)
 
-            rows = math.ceil(len(grupo) / 2)
+            # 🔵 AZUL
+            ax.plot(t["dia"], t["lanzadas"], color="blue", marker="o", label="Lanzadas")
 
-            plt.style.use("seaborn-v0_8-whitegrid")
-            plt.figure(figsize=(14, rows * 4))
+            # 🟢 VERDE
+            ax.plot(t["dia"], t["cerradas"], color="green", marker="o", label="Cerradas")
 
-            for i, centro in enumerate(grupo, 1):
+            # 🔴 ROJO (solo hasta hoy ya filtrado)
+            ax.plot(t["dia"], t["atrasadas"], color="red", marker="o", label="Atrasadas")
 
-                temp = rep[rep[c_centro] == centro].copy()
-                temp = temp.sort_values("dia")
+            ax.set_title(c)
+            ax.tick_params(axis="x", rotation=45)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
 
-                ax = plt.subplot(rows, 2, i)
-                ax.set_facecolor("#f7f9fc")
+        plt.tight_layout()
 
-                # =========================
-                # LÍNEAS
-                # =========================
-                ax.plot(temp["dia"], temp["lanzadas"],
-                        marker="o", color="#1f77b4", linewidth=2.5, label="Lanzadas")
+        name = f"dash_{page}.png"
+        plt.savefig(name, dpi=150)
+        plt.close()
 
-                ax.plot(temp["dia"], temp["cerradas"],
-                        marker="o", color="#2ca02c", linewidth=2.5, label="Cerradas")
+        send_photo(cid, name)
+        os.remove(name)
 
-                ax.plot(temp["dia"], temp["atrasadas"],
-                        marker="o", color="red", linewidth=2.5, label="Atrasadas")
-
-                # =========================
-                # ETIQUETAS ROJAS (ATRASADAS)
-                # =========================
-                for x, y in zip(temp["dia"], temp["atrasadas"]):
-
-                    if y > 0:
-                        ax.text(
-                            x,
-                            y + 0.4,
-                            str(y),
-                            fontsize=8,
-                            ha="center",
-                            color="red",
-                            bbox=dict(facecolor="white", alpha=0.7, boxstyle="round")
-                        )
-
-                ax.set_title(f"📊 Dashboard - {centro}", fontweight="bold")
-                ax.tick_params(axis='x', rotation=45)
-                ax.grid(alpha=0.3)
-                ax.legend()
-
-            plt.tight_layout()
-
-            img = f"dashboard_{pagina}.png"
-            plt.savefig(img, dpi=150)
-            plt.close()
-
-            send_photo(cid, img)
-            os.remove(img)
-
-            pagina += 1
-
-    except Exception as e:
-        send_msg(cid, f"❌ ERROR: {e}")
+        page += 1
 
 # =========================
-# BOT LOOP
+# LOOP
 # =========================
 def main():
 
     offset = 0
-    print("🚀 BOT FINAL ACTIVO")
 
     while True:
 
-        try:
+        r = requests.get(f"{URL}/getUpdates",
+                         params={"offset": offset, "timeout": 30}).json()
 
-            r = requests.get(
-                f"{URL}/getUpdates",
-                params={"offset": offset, "timeout": 30},
-                timeout=40
-            )
+        for u in r.get("result", []):
 
-            data = r.json()
+            offset = u["update_id"] + 1
 
-            for u in data.get("result", []):
+            m = u.get("message", {})
+            cid = m.get("chat", {}).get("id")
 
-                offset = u["update_id"] + 1
+            if "document" in m:
 
-                m = u.get("message", {})
-                cid = m.get("chat", {}).get("id")
+                fid = m["document"]["file_id"]
 
-                if not cid:
-                    continue
+                info = requests.get(f"{URL}/getFile",
+                                    params={"file_id": fid}).json()
 
-                if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel SAP")
+                path = info["result"]["file_path"]
 
-                if "document" in m:
+                file_url = f"https://api.telegram.org/file/bot{TOKEN}/{path}"
 
-                    send_msg(cid, "⌛ Procesando archivo...")
+                data = requests.get(file_url)
 
-                    file_id = m["document"]["file_id"]
+                with open("temp.xlsx", "wb") as f:
+                    f.write(data.content)
 
-                    info = requests.get(
-                        f"{URL}/getFile",
-                        params={"file_id": file_id}
-                    ).json()
+                procesar(cid, "temp.xlsx")
 
-                    file_path = info["result"]["file_path"]
-
-                    file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-
-                    file_data = requests.get(file_url, timeout=60)
-
-                    local = "temp.xlsx"
-
-                    with open(local, "wb") as f:
-                        f.write(file_data.content)
-
-                    procesar(cid, local)
-
-                    os.remove(local)
-
-        except Exception as e:
-            print("LOOP ERROR:", e)
-            time.sleep(5)
+                os.remove("temp.xlsx")
 
 if __name__ == "__main__":
     main()
