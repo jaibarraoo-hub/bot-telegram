@@ -52,11 +52,14 @@ def procesar(cid, archivo):
         # normalizar columnas
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
-        # columnas base
+        # =========================
+        # COLUMNAS
+        # =========================
         c_centro = "centro"
         c_inicio = "fecha de inicio extrema"
         c_fin = "fecha real de fin de la orden"
-        c_estatus = "estatus del sistema"
+        c_status = "status del sistema"
+        c_texto = "texto breve"
 
         # =========================
         # FECHAS
@@ -67,7 +70,17 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # DIAS
+        # FILTROS
+        # =========================
+        if c_texto in df.columns:
+
+            df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
+
+            df = df[~df[c_texto].str.startswith("insp. semanal")]
+            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
+
+        # =========================
+        # DÍA
         # =========================
         df["dia"] = df[c_inicio].dt.date
 
@@ -83,10 +96,9 @@ def procesar(cid, archivo):
         cerradas = cerradas_df.groupby([c_centro, "dia"]).size().reset_index(name="cerradas")
 
         # =========================
-        # ATRASADAS (NO ACUMULADAS)
+        # ATRASADAS (STATUS CORRECTO)
         # =========================
-        abiertas = df[df[c_estatus] == "LIB. KKMP NLIQ"]
-
+        abiertas = df[df[c_status] == "LIB. KKMP NLIQ"]
         abiertas = abiertas.groupby([c_centro, "dia"]).size().reset_index(name="atrasadas")
 
         # =========================
@@ -162,9 +174,10 @@ def procesar(cid, archivo):
                         marker="o", color="red", linewidth=2.5, label="Atrasadas")
 
                 # =========================
-                # ETIQUETAS LIMPIAS
+                # ETIQUETAS ROJAS (ATRASADAS)
                 # =========================
                 for x, y in zip(temp["dia"], temp["atrasadas"]):
+
                     if y > 0:
                         ax.text(
                             x,
