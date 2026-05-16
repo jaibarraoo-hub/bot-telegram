@@ -4,6 +4,8 @@ import math
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+from datetime import datetime
+import pytz
 
 # =========================
 # TOKEN
@@ -19,30 +21,24 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 # TELEGRAM
 # =========================
 def send_msg(cid, text):
-
     try:
         requests.post(
             f"{URL}/sendMessage",
             json={"chat_id": cid, "text": text},
             timeout=20
         )
-
     except Exception as e:
         print("ERROR MSG:", e)
 
 def send_photo(cid, path):
-
     try:
-
         with open(path, "rb") as img:
-
             requests.post(
                 f"{URL}/sendPhoto",
                 data={"chat_id": cid},
                 files={"photo": img},
                 timeout=60
             )
-
     except Exception as e:
         print("ERROR PHOTO:", e)
 
@@ -93,10 +89,13 @@ def procesar(cid, archivo):
         # FILTROS
         # =========================
         if c_texto in df.columns:
-
             df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
 
-            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
+            df = df[
+                ~df[c_texto].str.startswith(
+                    "rev. estructura y pintura trimestral"
+                )
+            ]
 
         # =========================
         # FECHAS BASE
@@ -152,7 +151,7 @@ def procesar(cid, archivo):
         ]
 
         # =========================
-        # KPI ACUMULADO
+        # KPI
         # =========================
         cumplimiento = {}
         centros = rep[c_centro].dropna().unique()
@@ -162,8 +161,7 @@ def procesar(cid, archivo):
             total_plan = len(df[(df[c_centro] == centro) & (df["dia_inicio"] <= limite)])
             total_real = len(df[(df[c_centro] == centro) & (df["dia_fin"] <= limite)])
 
-            pct = (total_real / total_plan) * 100 if total_plan > 0 else 0
-            cumplimiento[centro] = pct
+            cumplimiento[centro] = (total_real / total_plan * 100) if total_plan > 0 else 0
 
         if len(centros) == 0:
             send_msg(cid, "❌ Sin centros")
@@ -181,6 +179,13 @@ def procesar(cid, archivo):
         send_msg(cid, "📈 Generando gráficas...")
 
         # =========================
+        # ZONA HORARIA CORRECTA
+        # =========================
+        zona = pytz.timezone("America/Mexico_City")  # ajusta si necesitas
+
+        fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
+
+        # =========================
         # GRAFICAS
         # =========================
         for grupo in paginas:
@@ -195,10 +200,8 @@ def procesar(cid, archivo):
             fig = plt.figure(figsize=(14, rows * 4))
 
             # =========================
-            # 🔥 ENCABEZADO GLOBAL
+            # ENCABEZADO GLOBAL
             # =========================
-            fecha_revision = pd.Timestamp.now().strftime("%d-%m-%Y %H:%M")
-
             fig.suptitle(
                 f"Dashboard Ejecutivo SAP | Fecha actualización: {fecha_revision}",
                 fontsize=16,
@@ -210,9 +213,6 @@ def procesar(cid, archivo):
 
                 temp = rep[rep[c_centro] == centro].copy()
                 temp = temp.sort_values("fecha")
-
-                if len(temp) == 0:
-                    continue
 
                 ax = plt.subplot(rows, cols, i)
                 ax.set_facecolor("#f7f9fc")
