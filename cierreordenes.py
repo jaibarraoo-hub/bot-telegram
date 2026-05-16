@@ -19,6 +19,7 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 # TELEGRAM
 # =========================
 def send_msg(cid, text):
+
     try:
         requests.post(
             f"{URL}/sendMessage",
@@ -29,6 +30,7 @@ def send_msg(cid, text):
         print("ERROR MSG:", e)
 
 def send_photo(cid, path):
+
     try:
         with open(path, "rb") as img:
             requests.post(
@@ -52,7 +54,7 @@ def procesar(cid, archivo):
         df = pd.read_excel(archivo, engine="openpyxl")
 
         # =========================
-        # NORMALIZAR
+        # NORMALIZAR COLUMNAS
         # =========================
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
@@ -84,9 +86,10 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS
+        # FILTROS EXCLUSIONES
         # =========================
         if c_texto in df.columns:
+
             df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
 
             df = df[~df[c_texto].str.startswith("insp. semanal")]
@@ -136,17 +139,15 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # FECHA HOY
+        # ATRASADAS (CLAVE NUEVA)
         # =========================
         hoy = pd.Timestamp.now().date()
+        limite = hoy - pd.Timedelta(days=1)
 
-        # =========================
-        # ATRASADAS
-        # =========================
         atrasadas = df[
             (df[c_status].astype(str).str.strip().str.upper() == "LIB. KKMP NLIQ")
             &
-            (df["dia_inicio"] <= (hoy - pd.Timedelta(days=1)))
+            (df["dia_inicio"] <= limite)
         ]
 
         # =========================
@@ -155,23 +156,24 @@ def procesar(cid, archivo):
         centros = rep[c_centro].dropna().unique()
 
         if len(centros) == 0:
-            send_msg(cid, "❌ Sin datos")
+            send_msg(cid, "❌ Sin centros")
             return
 
         # =========================
         # 2 PAGINAS
         # =========================
         mid = max(1, math.ceil(len(centros) / 2))
+
         paginas = [centros[:mid], centros[mid:]]
         paginas = [p for p in paginas if len(p) > 0]
 
         pagina = 1
 
+        # =========================
+        # GRAFICAS
+        # =========================
         send_msg(cid, "📈 Generando gráficas...")
 
-        # =========================
-        # LOOP PAGINAS
-        # =========================
         for grupo in paginas:
 
             plt.close("all")
@@ -219,14 +221,11 @@ def procesar(cid, archivo):
                 )
 
                 # =========================
-                # NUMEROS PLAN
+                # NUMEROS
                 # =========================
                 for x, y in zip(temp["fecha"], temp["lanzadas"]):
                     ax.text(x, y + 0.5, str(y), fontsize=7, ha="center", color="#1f77b4")
 
-                # =========================
-                # NUMEROS REAL
-                # =========================
                 for x, y in zip(temp["fecha"], temp["cerradas"]):
                     ax.text(
                         x,
@@ -239,7 +238,7 @@ def procesar(cid, archivo):
                     )
 
                 # =========================
-                # ATRASADAS
+                # 🔴 ATRASADAS (SOLO TEXTO)
                 # =========================
                 cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
 
@@ -251,33 +250,7 @@ def procesar(cid, archivo):
                     fontsize=10,
                     color="red",
                     fontweight="bold",
-                    bbox=dict(facecolor="white", alpha=0.85, edgecolor="red")
-                )
-
-                # =========================
-                # QUÉ PASA HOY
-                # =========================
-                plan_hoy = df[(df[c_centro] == centro) & (df["dia_inicio"] == hoy)]
-                real_hoy = df[(df[c_centro] == centro) & (df["dia_fin"] == hoy)]
-                backlog_hoy = df[
-                    (df[c_centro] == centro)
-                    &
-                    (df[c_status].astype(str).str.strip().str.upper() == "LIB. KKMP NLIQ")
-                ]
-
-                ax.text(
-                    0.02,
-                    0.78,
-                    (
-                        "📊 QUÉ ESTÁ PASANDO HOY\n"
-                        f"🔵 Plan: {len(plan_hoy)}\n"
-                        f"🟢 Real: {len(real_hoy)}\n"
-                        f"🔴 Backlog: {len(backlog_hoy)}"
-                    ),
-                    transform=ax.transAxes,
-                    fontsize=9,
-                    color="black",
-                    bbox=dict(facecolor="white", alpha=0.85, edgecolor="gray")
+                    bbox=dict(facecolor="white", alpha=0.8, edgecolor="red")
                 )
 
                 # =========================
@@ -303,12 +276,12 @@ def procesar(cid, archivo):
         send_msg(cid, f"❌ ERROR: {e}")
 
 # =========================
-# LOOP BOT
+# BOT LOOP
 # =========================
 def main():
 
     offset = 0
-    print("🚀 BOT EJECUTANDO PLAN VS REAL + INSIGHTS")
+    print("🚀 BOT ACTIVO PLAN VS REAL + ATRASADAS")
 
     while True:
 
