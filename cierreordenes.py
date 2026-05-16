@@ -50,8 +50,7 @@ def procesar(cid, archivo):
         df = pd.read_excel(archivo, engine="openpyxl")
 
         df.columns = (
-            df.columns
-            .astype(str)
+            df.columns.astype(str)
             .str.strip()
             .str.lower()
         )
@@ -70,7 +69,7 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTROS ORDENES
+        # FILTROS
         # =========================
         if c_texto in df.columns:
 
@@ -80,7 +79,7 @@ def procesar(cid, archivo):
             df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
 
         # =========================
-        # DIAS
+        # FECHA BASE
         # =========================
         df["fecha"] = df[c_inicio].dt.date
 
@@ -106,14 +105,13 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # MENSAJE
+        # REPORTE TEXTO
         # =========================
         msg = "📊 REPORTE DIARIO\n\n"
 
         for centro in rep[c_centro].unique():
 
-            temp = rep[rep[c_centro] == centro].copy()
-            temp = temp.sort_values("fecha")
+            temp = rep[rep[c_centro] == centro]
 
             total_l = temp["lanzadas"].sum()
             total_c = temp["cerradas"].sum()
@@ -132,16 +130,26 @@ def procesar(cid, archivo):
         send_msg(cid, msg)
 
         # =========================
-        # DASHBOARD
+        # DASHBOARD (SOLO 2 HOJAS FIJAS)
         # =========================
+
         centros = rep[c_centro].dropna().unique()
+
+        # 🔥 FORZAR EXACTAMENTE 2 GRUPOS
         mid = math.ceil(len(centros) / 2)
 
-        paginas = [centros[:mid], centros[mid:]]
+        paginas = [
+            centros[:mid],
+            centros[mid:]  # SOLO 2 HOJAS
+        ]
 
         pagina = 1
 
         for grupo in paginas:
+
+            # 🔥 LIMPIEZA TOTAL DE GRAFICOS
+            plt.close("all")
+            plt.figure()
 
             cols = 2
             rows = math.ceil(len(grupo) / cols)
@@ -157,72 +165,27 @@ def procesar(cid, archivo):
                 ax = plt.subplot(rows, cols, i)
                 ax.set_facecolor("#f7f9fc")
 
-                # =========================
-                # LÍNEAS
-                # =========================
+                # 🔵 LANZADAS
                 ax.plot(
                     temp["fecha"],
                     temp["lanzadas"],
                     marker="o",
                     linewidth=2.5,
                     color="#1f77b4",
-                    markersize=5,
                     label="Lanzadas"
                 )
 
+                # 🟢 CERRADAS
                 ax.plot(
                     temp["fecha"],
                     temp["cerradas"],
                     marker="o",
                     linewidth=2.5,
                     color="#2ca02c",
-                    markersize=5,
                     label="Cerradas"
                 )
 
-                # =========================
-                # ETIQUETAS AZULES
-                # =========================
-                for x, y in zip(temp["fecha"], temp["lanzadas"]):
-
-                    ax.text(
-                        x,
-                        y + 0.5,
-                        str(y),
-                        fontsize=7,
-                        ha="center",
-                        color="#1f77b4"
-                    )
-
-                # =========================
-                # 🔥 FIX DEFINITIVO VERDE (NO SE TAPAN)
-                # =========================
-                for x, y in zip(temp["fecha"], temp["cerradas"]):
-
-                    ax.text(
-                        x,
-                        y - 0.9,   # separación segura
-                        str(y),
-                        fontsize=7,
-                        ha="center",
-                        color="#2ca02c",
-                        bbox=dict(
-                            facecolor="white",
-                            edgecolor="none",
-                            alpha=0.75,
-                            boxstyle="round,pad=0.2"
-                        )
-                    )
-
-                # =========================
-                # TÍTULO
-                # =========================
-                ax.set_title(
-                    f"📊 Dashboard Operativo - {centro}",
-                    fontsize=11,
-                    fontweight="bold"
-                )
-
+                ax.set_title(f"📊 {centro}")
                 ax.tick_params(axis='x', rotation=45)
                 ax.grid(True, alpha=0.3)
                 ax.legend()
@@ -230,7 +193,6 @@ def procesar(cid, archivo):
             plt.tight_layout()
 
             img = f"dashboard_{pagina}.png"
-
             plt.savefig(img, dpi=150)
             plt.close()
 
@@ -248,7 +210,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT DASHBOARD PRO ACTIVO")
+    print("🚀 BOT ACTIVO")
 
     while True:
 
@@ -258,22 +220,17 @@ def main():
                 f"{URL}/getUpdates",
                 params={"offset": offset, "timeout": 30},
                 timeout=40
-            )
+            ).json()
 
-            data = r.json()
-
-            for u in data.get("result", []):
+            for u in r.get("result", []):
 
                 offset = u["update_id"] + 1
 
                 m = u.get("message", {})
                 cid = m.get("chat", {}).get("id")
 
-                if not cid:
-                    continue
-
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel SAP")
+                    send_msg(cid, "📊 Envía tu Excel")
 
                 if "document" in m:
 
@@ -290,16 +247,14 @@ def main():
 
                     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
 
-                    file_data = requests.get(file_url, timeout=60)
+                    data = requests.get(file_url, timeout=60)
 
-                    local = "temp.xlsx"
+                    with open("temp.xlsx", "wb") as f:
+                        f.write(data.content)
 
-                    with open(local, "wb") as f:
-                        f.write(file_data.content)
+                    procesar(cid, "temp.xlsx")
 
-                    procesar(cid, local)
-
-                    os.remove(local)
+                    os.remove("temp.xlsx")
 
         except Exception as e:
             print("LOOP ERROR:", e)
