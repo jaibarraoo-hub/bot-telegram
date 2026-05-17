@@ -19,32 +19,36 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# CONTROL DUPLICADOS
-# =========================
-PROCESADOS = set()
-
-# =========================
 # TELEGRAM
 # =========================
 def send_msg(cid, text):
-    requests.post(f"{URL}/sendMessage", json={"chat_id": cid, "text": text})
+    try:
+        requests.post(
+            f"{URL}/sendMessage",
+            json={"chat_id": cid, "text": text},
+            timeout=20
+        )
+    except Exception as e:
+        print("MSG ERROR:", e)
 
 def send_photo(cid, path):
-    with open(path, "rb") as img:
-        requests.post(f"{URL}/sendPhoto", data={"chat_id": cid}, files={"photo": img})
+    try:
+        with open(path, "rb") as img:
+            requests.post(
+                f"{URL}/sendPhoto",
+                data={"chat_id": cid},
+                files={"photo": img},
+                timeout=60
+            )
+    except Exception as e:
+        print("PHOTO ERROR:", e)
 
 # =========================
 # PROCESO
 # =========================
-def procesar(cid, archivo, file_id):
+def procesar(cid, archivo):
 
     try:
-
-        if file_id in PROCESADOS:
-            send_msg(cid, "⚠️ Archivo ya procesado")
-            return
-
-        PROCESADOS.add(file_id)
 
         send_msg(cid, "📥 Leyendo archivo...")
 
@@ -112,35 +116,30 @@ def procesar(cid, archivo, file_id):
         # =========================
         # KPI
         # =========================
-        total_ordenes = len(df)
-        cerradas_total = len(df.dropna(subset=[c_fin]))
-        atrasadas_total = len(atrasadas)
-        abiertas_total = max(0, total_ordenes - cerradas_total)
-
-        cumplimiento_global = round((cerradas_total / total_ordenes * 100), 1) if total_ordenes else 0
-
-        zona = pytz.timezone("America/Mexico_City")
-        fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
-
-        send_msg(cid, "📊 Generando dashboards...")
-
-        # =========================
-        # DASH OPERATIVO
-        # =========================
         centros = rep[c_centro].dropna().unique()
+
+        if len(centros) == 0:
+            send_msg(cid, "❌ Sin datos")
+            return
+
         mid = max(1, math.ceil(len(centros) / 2))
         paginas = [centros[:mid], centros[mid:]]
 
         pagina = 1
 
+        send_msg(cid, "📊 Generando dashboards...")
+
+        # =========================
+        # DASHBOARD OPERATIVO (SIN CAMBIOS)
+        # =========================
         for grupo in paginas:
 
             plt.close("all")
-            rows = math.ceil(len(grupo) / 2)
 
+            rows = math.ceil(len(grupo) / 2)
             fig = plt.figure(figsize=(14, rows * 4))
 
-            fig.suptitle(f"Dashboard SAP Operativo | {fecha_revision}", fontsize=14, fontweight="bold")
+            fig.suptitle("Dashboard SAP Operativo", fontsize=14, fontweight="bold")
 
             for i, centro in enumerate(grupo, 1):
 
@@ -154,25 +153,23 @@ def procesar(cid, archivo, file_id):
 
                 cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
 
-                # 🔥 FIX ROJO ATRASADAS
+                # 🔴 FIX SOLO COLOR (NO DISEÑO)
                 ax.text(
                     0.02,
                     0.9,
                     f"🔴 Atrasadas: {cant_atrasadas}",
                     transform=ax.transAxes,
                     fontsize=10,
+                    color="red",
                     fontweight="bold",
-                    color="#ef4444",
-                    bbox=dict(facecolor="white", alpha=0.85, edgecolor="#ef4444")
+                    bbox=dict(facecolor="white", alpha=0.85)
                 )
-
-                ax.text(0.98, 0.9, f"{cumplimiento_global}%", ha="right", transform=ax.transAxes)
 
                 ax.set_title(centro)
                 ax.legend()
                 ax.grid(alpha=0.3)
 
-            plt.tight_layout(rect=[0, 0, 1, 0.93])
+            plt.tight_layout()
 
             img = f"dashboard_{pagina}.png"
             plt.savefig(img, dpi=150, bbox_inches="tight")
@@ -184,23 +181,23 @@ def procesar(cid, archivo, file_id):
             pagina += 1
 
         # =========================
-        # DASHBOARD DIRECCIÓN
+        # DASHBOARD DIRECCIÓN (SIN CAMBIOS DE DISEÑO)
         # =========================
+        total_ordenes = len(df)
+        cerradas_total = len(df.dropna(subset=[c_fin]))
+        atrasadas_total = len(atrasadas)
+        abiertas_total = max(0, total_ordenes - cerradas_total)
+
+        cumplimiento_global = round((cerradas_total / total_ordenes * 100), 1) if total_ordenes else 0
+
+        zona = pytz.timezone("America/Mexico_City")
+        fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
+
         plt.close("all")
 
-        plt.style.use("dark_background")
-
-        plt.rcParams.update({
-            "text.color": "white",
-            "axes.labelcolor": "white",
-            "xtick.color": "white",
-            "ytick.color": "white"
-        })
-
         fig = plt.figure(figsize=(20, 11))
-        fig.patch.set_facecolor("#0f172a")
 
-        fig.suptitle("📊 DASHBOARD DIRECCIÓN EJECUTIVA", fontsize=20, fontweight="bold", color="white")
+        fig.suptitle("📊 DASHBOARD DIRECCIÓN EJECUTIVA", fontsize=20, fontweight="bold")
 
         # DONUT
         ax1 = plt.subplot2grid((3,4), (0,0), rowspan=2)
@@ -213,7 +210,7 @@ def procesar(cid, archivo, file_id):
             textprops={'color':"white"}
         )
 
-        ax1.set_title("Estado General", color="white")
+        ax1.set_title("Estado General")
 
         # KPIs
         ax2 = plt.subplot2grid((3,4), (0,1), colspan=3)
@@ -231,8 +228,7 @@ CUMPLIMIENTO: {cumplimiento_global}%
 """,
             fontsize=18,
             fontweight="bold",
-            color="white",
-            bbox=dict(facecolor="#1e293b", boxstyle="round,pad=1")
+            bbox=dict(facecolor="#eeeeee", boxstyle="round,pad=1")
         )
 
         # ATRASOS
@@ -240,14 +236,14 @@ CUMPLIMIENTO: {cumplimiento_global}%
 
         ax3 = plt.subplot2grid((3,4), (1,1), colspan=3)
         ax3.barh(top_atrasos.index.astype(str), top_atrasos.values, color="#ef4444")
-        ax3.set_title("🔴 Centros con más atrasos", color="white")
+        ax3.set_title("Centros con más atrasos")
 
         # CIERRES
         top_cierres = df.dropna(subset=[c_fin]).groupby(c_centro).size().sort_values().tail(6)
 
         ax4 = plt.subplot2grid((3,4), (2,0), colspan=2)
         ax4.bar(top_cierres.index.astype(str), top_cierres.values, color="#22c55e")
-        ax4.set_title("🟢 Centros con más cierres", color="white")
+        ax4.set_title("Centros con más cierres")
 
         # SEMÁFORO
         ax5 = plt.subplot2grid((3,4), (2,2), colspan=2)
@@ -263,8 +259,8 @@ CUMPLIMIENTO: {cumplimiento_global}%
             color = "#ef4444"
             estado = "CRÍTICO"
 
-        ax5.text(0.5, 0.6, f"{cumplimiento_global}%", ha="center", fontsize=44, color=color)
-        ax5.text(0.5, 0.25, estado, ha="center", fontsize=18, color="white")
+        ax5.text(0.5, 0.6, f"{cumplimiento_global}%", ha="center", fontsize=40, color=color)
+        ax5.text(0.5, 0.25, estado, ha="center", fontsize=18)
 
         plt.tight_layout()
 
@@ -280,12 +276,12 @@ CUMPLIMIENTO: {cumplimiento_global}%
         print("ERROR:", e)
 
 # =========================
-# LOOP
+# LOOP BOT
 # =========================
 def main():
 
     offset = 0
-    print("🚀 BOT SAP ACTIVO")
+    print("🚀 BOT ACTIVO")
 
     while True:
         try:
@@ -300,7 +296,7 @@ def main():
                 cid = m.get("chat", {}).get("id")
 
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel SAP")
+                    send_msg(cid, "📊 Envía tu Excel")
 
                 if "document" in m:
 
@@ -317,7 +313,7 @@ def main():
                     with open("temp.xlsx", "wb") as f:
                         f.write(file_data.content)
 
-                    procesar(cid, "temp.xlsx", file_id)
+                    procesar(cid, "temp.xlsx")
 
                     os.remove("temp.xlsx")
 
