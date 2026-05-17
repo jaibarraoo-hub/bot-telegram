@@ -53,6 +53,7 @@ def procesar(cid, archivo):
         send_msg(cid, "📥 Leyendo archivo...")
 
         df = pd.read_excel(archivo, engine="openpyxl")
+
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
         c_centro = "centro"
@@ -70,11 +71,17 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTRO
+        # FILTRO SOLO TRIMESTRALES FUERA
         # =========================
         if c_texto in df.columns:
+
             df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
-            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
+
+            df = df[
+                ~df[c_texto].str.startswith(
+                    "rev. estructura y pintura trimestral"
+                )
+            ]
 
         # =========================
         # FECHAS BASE
@@ -83,7 +90,7 @@ def procesar(cid, archivo):
         df["dia_fin"] = df[c_fin].dt.date
 
         # =========================
-        # PLAN VS REAL
+        # PLAN / REAL
         # =========================
         lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
         cerradas = df.dropna(subset=[c_fin]).groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
@@ -102,7 +109,7 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # ATRASADAS
+        # ATRASADAS (LIB KKMP NLIQ)
         # =========================
         hoy = pd.Timestamp.now().date()
         limite = hoy - pd.Timedelta(days=1)
@@ -114,62 +121,114 @@ def procesar(cid, archivo):
         ]
 
         # =========================
-        # KPI
+        # KPI CUMPLIMIENTO
         # =========================
+        cumplimiento = {}
         centros = rep[c_centro].dropna().unique()
 
         if len(centros) == 0:
             send_msg(cid, "❌ Sin datos")
             return
 
+        for centro in centros:
+
+            total_plan = len(df[(df[c_centro] == centro) & (df["dia_inicio"] <= limite)])
+            total_real = len(df[(df[c_centro] == centro) & (df["dia_fin"] <= limite)])
+
+            cumplimiento[centro] = (total_real / total_plan * 100) if total_plan > 0 else 0
+
+        # =========================
+        # PAGINAS
+        # =========================
         mid = max(1, math.ceil(len(centros) / 2))
         paginas = [centros[:mid], centros[mid:]]
 
         pagina = 1
 
+        # =========================
+        # ZONA HORARIA
+        # =========================
+        zona = pytz.timezone("America/Mexico_City")
+        fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
+
         send_msg(cid, "📊 Generando dashboards...")
 
         # =========================
-        # DASHBOARD OPERATIVO (SIN CAMBIOS)
+        # GRAFICAS (IGUAL QUE ORIGINAL)
         # =========================
         for grupo in paginas:
 
             plt.close("all")
 
-            rows = math.ceil(len(grupo) / 2)
+            cols = 2
+            rows = math.ceil(len(grupo) / cols)
+
+            plt.style.use("seaborn-v0_8-whitegrid")
             fig = plt.figure(figsize=(14, rows * 4))
 
-            fig.suptitle("Dashboard SAP Operativo", fontsize=14, fontweight="bold")
+            fig.suptitle(
+                f"Dashboard Ejecutivo SAP | Actualización: {fecha_revision}",
+                fontsize=15,
+                fontweight="bold"
+            )
 
             for i, centro in enumerate(grupo, 1):
 
                 temp = rep[rep[c_centro] == centro].copy()
                 temp = temp.sort_values("fecha")
 
-                ax = plt.subplot(rows, 2, i)
+                ax = plt.subplot(rows, cols, i)
+                ax.set_facecolor("#f7f9fc")
 
-                ax.plot(temp["fecha"], temp["lanzadas"], label="Plan")
-                ax.plot(temp["fecha"], temp["cerradas"], label="Real")
+                # PLAN
+                ax.plot(temp["fecha"], temp["lanzadas"], marker="o", linewidth=2.5, color="#1f77b4", label="Plan")
 
+                # REAL
+                ax.plot(temp["fecha"], temp["cerradas"], marker="o", linewidth=2.5, color="#2ca02c", label="Real")
+
+                # NUMEROS
+                for x, y in zip(temp["fecha"], temp["lanzadas"]):
+                    ax.text(x, y + 0.5, str(y), fontsize=7, ha="center", color="#1f77b4")
+
+                for x, y in zip(temp["fecha"], temp["cerradas"]):
+                    ax.text(x, y - 0.9, str(y), fontsize=7, ha="center", color="#2ca02c")
+
+                # =========================
+                # ATRASADAS (SOLO FIX VISUAL)
+                # =========================
                 cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
 
-                # 🔴 FIX SOLO COLOR (NO DISEÑO)
                 ax.text(
                     0.02,
-                    0.9,
+                    0.92,
                     f"🔴 Atrasadas: {cant_atrasadas}",
                     transform=ax.transAxes,
                     fontsize=10,
                     color="red",
                     fontweight="bold",
+                    bbox=dict(facecolor="white", alpha=0.85, edgecolor="red")
+                )
+
+                # CUMPLIMIENTO
+                pct = round(cumplimiento[centro], 1)
+
+                ax.text(
+                    0.98,
+                    0.95,
+                    f"📈 Cumplimiento: {pct}%",
+                    transform=ax.transAxes,
+                    fontsize=9,
+                    ha="right",
+                    va="top",
                     bbox=dict(facecolor="white", alpha=0.85)
                 )
 
-                ax.set_title(centro)
+                ax.set_title(f"📊 Plan vs Real - {centro}", fontsize=11, fontweight="bold")
+                ax.tick_params(axis='x', rotation=45)
+                ax.grid(True, alpha=0.3)
                 ax.legend()
-                ax.grid(alpha=0.3)
 
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0, 1, 0.93])
 
             img = f"dashboard_{pagina}.png"
             plt.savefig(img, dpi=150, bbox_inches="tight")
@@ -180,113 +239,28 @@ def procesar(cid, archivo):
 
             pagina += 1
 
-        # =========================
-        # DASHBOARD DIRECCIÓN (SIN CAMBIOS DE DISEÑO)
-        # =========================
-        total_ordenes = len(df)
-        cerradas_total = len(df.dropna(subset=[c_fin]))
-        atrasadas_total = len(atrasadas)
-        abiertas_total = max(0, total_ordenes - cerradas_total)
-
-        cumplimiento_global = round((cerradas_total / total_ordenes * 100), 1) if total_ordenes else 0
-
-        zona = pytz.timezone("America/Mexico_City")
-        fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
-
-        plt.close("all")
-
-        fig = plt.figure(figsize=(20, 11))
-
-        fig.suptitle("📊 DASHBOARD DIRECCIÓN EJECUTIVA", fontsize=20, fontweight="bold")
-
-        # DONUT
-        ax1 = plt.subplot2grid((3,4), (0,0), rowspan=2)
-
-        ax1.pie(
-            [cerradas_total, atrasadas_total, abiertas_total],
-            labels=["Cerradas", "Atrasadas", "Abiertas"],
-            autopct='%1.1f%%',
-            colors=["#22c55e", "#ef4444", "#3b82f6"],
-            textprops={'color':"white"}
-        )
-
-        ax1.set_title("Estado General")
-
-        # KPIs
-        ax2 = plt.subplot2grid((3,4), (0,1), colspan=3)
-        ax2.axis("off")
-
-        ax2.text(
-            0.02,
-            0.5,
-            f"""
-TOTAL: {total_ordenes}
-CERRADAS: {cerradas_total}
-ATRASADAS: {atrasadas_total}
-ABIERTAS: {abiertas_total}
-CUMPLIMIENTO: {cumplimiento_global}%
-""",
-            fontsize=18,
-            fontweight="bold",
-            bbox=dict(facecolor="#eeeeee", boxstyle="round,pad=1")
-        )
-
-        # ATRASOS
-        top_atrasos = atrasadas.groupby(c_centro).size().sort_values().tail(6)
-
-        ax3 = plt.subplot2grid((3,4), (1,1), colspan=3)
-        ax3.barh(top_atrasos.index.astype(str), top_atrasos.values, color="#ef4444")
-        ax3.set_title("Centros con más atrasos")
-
-        # CIERRES
-        top_cierres = df.dropna(subset=[c_fin]).groupby(c_centro).size().sort_values().tail(6)
-
-        ax4 = plt.subplot2grid((3,4), (2,0), colspan=2)
-        ax4.bar(top_cierres.index.astype(str), top_cierres.values, color="#22c55e")
-        ax4.set_title("Centros con más cierres")
-
-        # SEMÁFORO
-        ax5 = plt.subplot2grid((3,4), (2,2), colspan=2)
-        ax5.axis("off")
-
-        if cumplimiento_global >= 90:
-            color = "#22c55e"
-            estado = "EXCELENTE"
-        elif cumplimiento_global >= 75:
-            color = "#f59e0b"
-            estado = "RIESGO"
-        else:
-            color = "#ef4444"
-            estado = "CRÍTICO"
-
-        ax5.text(0.5, 0.6, f"{cumplimiento_global}%", ha="center", fontsize=40, color=color)
-        ax5.text(0.5, 0.25, estado, ha="center", fontsize=18)
-
-        plt.tight_layout()
-
-        img_exec = "dashboard_direccion.png"
-        plt.savefig(img_exec, dpi=200, bbox_inches="tight")
-        plt.close()
-
-        send_photo(cid, img_exec)
-        os.remove(img_exec)
-
     except Exception as e:
         send_msg(cid, f"❌ ERROR: {e}")
         print("ERROR:", e)
 
 # =========================
-# LOOP BOT
+# BOT LOOP
 # =========================
 def main():
 
     offset = 0
-    print("🚀 BOT ACTIVO")
+    print("🚀 BOT EJECUTIVO RENDER SAFE ACTIVO")
 
     while True:
+
         try:
 
-            r = requests.get(f"{URL}/getUpdates", params={"offset": offset, "timeout": 30})
+            r = requests.get(
+                f"{URL}/getUpdates",
+                params={"offset": offset, "timeout": 30},
+                timeout=40
+            )
+
             data = r.json()
 
             for u in data.get("result", []):
@@ -295,27 +269,37 @@ def main():
                 m = u.get("message", {})
                 cid = m.get("chat", {}).get("id")
 
+                if not cid:
+                    continue
+
                 if m.get("text") == "/start":
-                    send_msg(cid, "📊 Envía tu Excel")
+                    send_msg(cid, "📊 Envía tu Excel SAP")
 
                 if "document" in m:
 
+                    send_msg(cid, "⌛ Procesando archivo...")
+
                     file_id = m["document"]["file_id"]
 
-                    send_msg(cid, "⌛ Procesando...")
+                    info = requests.get(
+                        f"{URL}/getFile",
+                        params={"file_id": file_id}
+                    ).json()
 
-                    info = requests.get(f"{URL}/getFile", params={"file_id": file_id}).json()
                     file_path = info["result"]["file_path"]
 
                     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-                    file_data = requests.get(file_url)
 
-                    with open("temp.xlsx", "wb") as f:
+                    file_data = requests.get(file_url, timeout=60)
+
+                    local = "temp.xlsx"
+
+                    with open(local, "wb") as f:
                         f.write(file_data.content)
 
-                    procesar(cid, "temp.xlsx")
+                    procesar(cid, local)
 
-                    os.remove("temp.xlsx")
+                    os.remove(local)
 
         except Exception as e:
             print("LOOP ERROR:", e)
