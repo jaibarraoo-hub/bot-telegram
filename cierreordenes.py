@@ -71,7 +71,7 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTRO SOLO TRIMESTRALES FUERA
+        # FILTRO
         # =========================
         if c_texto in df.columns:
 
@@ -92,7 +92,11 @@ def procesar(cid, archivo):
         # =========================
         # PLAN / REAL
         # =========================
-        lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
+        lanzadas = (
+            df.groupby([c_centro, "dia_inicio"])
+            .size()
+            .reset_index(name="lanzadas")
+        )
 
         cerradas = (
             df.dropna(subset=[c_fin])
@@ -124,13 +128,18 @@ def procesar(cid, archivo):
         limite = hoy - pd.Timedelta(days=1)
 
         atrasadas = df[
-            (df[c_status].astype(str).str.strip().str.upper() == "LIB. KKMP NLIQ")
+            (
+                df[c_status]
+                .astype(str)
+                .str.strip()
+                .str.upper() == "LIB. KKMP NLIQ"
+            )
             &
             (df["dia_inicio"] <= limite)
         ]
 
         # =========================
-        # KPI CUMPLIMIENTO
+        # KPI
         # =========================
         cumplimiento = {}
 
@@ -168,12 +177,19 @@ def procesar(cid, archivo):
         # =========================
         # PAGINAS
         # =========================
-        paginas = [centros]
+        mid = max(1, math.ceil(len(centros) / 2))
+
+        paginas = [
+            centros[:mid],
+            centros[mid:]
+        ]
+
+        paginas = [p for p in paginas if len(p) > 0]
 
         pagina = 1
 
         # =========================
-        # ZONA HORARIA
+        # FECHA
         # =========================
         zona = pytz.timezone("America/Mexico_City")
 
@@ -189,6 +205,7 @@ def procesar(cid, archivo):
             plt.close("all")
 
             cols = 2
+
             rows = math.ceil(len(grupo) / cols)
 
             plt.style.use("seaborn-v0_8-whitegrid")
@@ -203,7 +220,9 @@ def procesar(cid, archivo):
 
             for i, centro in enumerate(grupo, 1):
 
-                temp = rep[rep[c_centro] == centro].copy()
+                temp = rep[
+                    rep[c_centro] == centro
+                ].copy()
 
                 temp = temp.sort_values("fecha")
 
@@ -232,7 +251,10 @@ def procesar(cid, archivo):
                 )
 
                 # NUMEROS PLAN
-                for x, y in zip(temp["fecha"], temp["lanzadas"]):
+                for x, y in zip(
+                    temp["fecha"],
+                    temp["lanzadas"]
+                ):
 
                     ax.text(
                         x,
@@ -244,7 +266,10 @@ def procesar(cid, archivo):
                     )
 
                 # NUMEROS REAL
-                for x, y in zip(temp["fecha"], temp["cerradas"]):
+                for x, y in zip(
+                    temp["fecha"],
+                    temp["cerradas"]
+                ):
 
                     ax.text(
                         x,
@@ -278,7 +303,10 @@ def procesar(cid, archivo):
                 )
 
                 # KPI
-                pct = round(cumplimiento[centro], 1)
+                pct = round(
+                    cumplimiento[centro],
+                    1
+                )
 
                 ax.text(
                     0.98,
@@ -309,7 +337,9 @@ def procesar(cid, archivo):
 
                 ax.legend()
 
-            plt.tight_layout(rect=[0, 0, 1, 0.93])
+            plt.tight_layout(
+                rect=[0, 0, 1, 0.93]
+            )
 
             img = f"dashboard_{pagina}.png"
 
@@ -332,7 +362,11 @@ def procesar(cid, archivo):
         # =========================
         plt.close("all")
 
-        fig2, axs = plt.subplots(2, 2, figsize=(14, 10))
+        fig2, axs = plt.subplots(
+            2,
+            2,
+            figsize=(14, 10)
+        )
 
         fig2.patch.set_facecolor("#111111")
 
@@ -345,7 +379,9 @@ def procesar(cid, archivo):
 
         total_ot = len(df)
 
-        total_cerradas = len(df.dropna(subset=[c_fin]))
+        total_cerradas = len(
+            df.dropna(subset=[c_fin])
+        )
 
         total_atrasadas = len(atrasadas)
 
@@ -354,14 +390,21 @@ def procesar(cid, archivo):
             1
         ) if total_ot > 0 else 0
 
-        # =========================
         # PIE
-        # =========================
         axs[0, 0].pie(
-            [total_cerradas, total_ot - total_cerradas],
-            labels=["Cerradas", "Pendientes"],
+            [
+                total_cerradas,
+                total_ot - total_cerradas
+            ],
+            labels=[
+                "Cerradas",
+                "Pendientes"
+            ],
             autopct='%1.1f%%',
-            colors=["#2ecc71", "#e74c3c"],
+            colors=[
+                "#2ecc71",
+                "#e74c3c"
+            ],
             textprops={
                 'color': "white",
                 'fontsize': 11
@@ -375,9 +418,7 @@ def procesar(cid, archivo):
             fontweight="bold"
         )
 
-        # =========================
         # ATRASADAS
-        # =========================
         atr_centro = (
             atrasadas
             .groupby(c_centro)
@@ -399,12 +440,18 @@ def procesar(cid, archivo):
             fontweight="bold"
         )
 
-        axs[0, 1].tick_params(axis='x', rotation=20, colors='white')
-        axs[0, 1].tick_params(axis='y', colors='white')
+        axs[0, 1].tick_params(
+            axis='x',
+            rotation=20,
+            colors='white'
+        )
 
-        # =========================
+        axs[0, 1].tick_params(
+            axis='y',
+            colors='white'
+        )
+
         # KPI TEXTO
-        # =========================
         axs[1, 0].axis("off")
 
         texto = f"""
@@ -428,9 +475,7 @@ Cumplimiento Global:
             va="center"
         )
 
-        # =========================
         # TOP CIERRES
-        # =========================
         cierres = (
             df.dropna(subset=[c_fin])
             .groupby(c_centro)
@@ -452,12 +497,17 @@ Cumplimiento Global:
             fontweight="bold"
         )
 
-        axs[1, 1].tick_params(axis='x', colors='white')
-        axs[1, 1].tick_params(axis='y', colors='white')
+        axs[1, 1].tick_params(
+            axis='x',
+            colors='white'
+        )
 
-        # =========================
+        axs[1, 1].tick_params(
+            axis='y',
+            colors='white'
+        )
+
         # ESTILO GENERAL
-        # =========================
         for ax in axs.flat:
 
             ax.set_facecolor("#1c1c1c")
@@ -465,7 +515,9 @@ Cumplimiento Global:
             for spine in ax.spines.values():
                 spine.set_color("white")
 
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.tight_layout(
+            rect=[0, 0, 1, 0.95]
+        )
 
         img2 = "dashboard_directivo.png"
 
@@ -484,7 +536,10 @@ Cumplimiento Global:
 
     except Exception as e:
 
-        send_msg(cid, f"❌ ERROR: {e}")
+        send_msg(
+            cid,
+            f"❌ ERROR: {e}"
+        )
 
         print("ERROR:", e)
 
@@ -541,7 +596,9 @@ def main():
 
                     info = requests.get(
                         f"{URL}/getFile",
-                        params={"file_id": file_id}
+                        params={
+                            "file_id": file_id
+                        }
                     ).json()
 
                     file_path = info["result"]["file_path"]
