@@ -19,7 +19,7 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# CONTROL ANTI DUPLICADOS
+# CONTROL DUPLICADOS
 # =========================
 PROCESADOS = set()
 
@@ -27,35 +27,19 @@ PROCESADOS = set()
 # TELEGRAM
 # =========================
 def send_msg(cid, text):
-    try:
-        requests.post(
-            f"{URL}/sendMessage",
-            json={"chat_id": cid, "text": text},
-            timeout=20
-        )
-    except Exception as e:
-        print("MSG ERROR:", e)
+    requests.post(f"{URL}/sendMessage", json={"chat_id": cid, "text": text})
 
 def send_photo(cid, path):
-    try:
-        with open(path, "rb") as img:
-            requests.post(
-                f"{URL}/sendPhoto",
-                data={"chat_id": cid},
-                files={"photo": img},
-                timeout=60
-            )
-    except Exception as e:
-        print("PHOTO ERROR:", e)
+    with open(path, "rb") as img:
+        requests.post(f"{URL}/sendPhoto", data={"chat_id": cid}, files={"photo": img})
 
 # =========================
-# PROCESO PRINCIPAL
+# PROCESO
 # =========================
 def procesar(cid, archivo, file_id):
 
     try:
 
-        # 🔥 evitar duplicados
         if file_id in PROCESADOS:
             send_msg(cid, "⚠️ Archivo ya procesado")
             return
@@ -65,7 +49,6 @@ def procesar(cid, archivo, file_id):
         send_msg(cid, "📥 Leyendo archivo...")
 
         df = pd.read_excel(archivo, engine="openpyxl")
-
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
         c_centro = "centro"
@@ -127,25 +110,22 @@ def procesar(cid, archivo, file_id):
         ]
 
         # =========================
-        # KPI GLOBAL
+        # KPI
         # =========================
         total_ordenes = len(df)
         cerradas_total = len(df.dropna(subset=[c_fin]))
         atrasadas_total = len(atrasadas)
         abiertas_total = max(0, total_ordenes - cerradas_total)
 
-        cumplimiento_global = round(
-            (cerradas_total / total_ordenes * 100),
-            1
-        ) if total_ordenes > 0 else 0
+        cumplimiento_global = round((cerradas_total / total_ordenes * 100), 1) if total_ordenes else 0
 
         zona = pytz.timezone("America/Mexico_City")
         fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
 
-        send_msg(cid, "📊 Generando dashboard...")
+        send_msg(cid, "📊 Generando dashboards...")
 
         # =========================
-        # DASH OPERATIVO (CENTROS)
+        # DASH OPERATIVO
         # =========================
         centros = rep[c_centro].dropna().unique()
         mid = max(1, math.ceil(len(centros) / 2))
@@ -156,16 +136,11 @@ def procesar(cid, archivo, file_id):
         for grupo in paginas:
 
             plt.close("all")
-
             rows = math.ceil(len(grupo) / 2)
 
             fig = plt.figure(figsize=(14, rows * 4))
 
-            fig.suptitle(
-                f"Dashboard SAP Operativo | {fecha_revision}",
-                fontsize=14,
-                fontweight="bold"
-            )
+            fig.suptitle(f"Dashboard SAP Operativo | {fecha_revision}", fontsize=14, fontweight="bold")
 
             for i, centro in enumerate(grupo, 1):
 
@@ -179,11 +154,19 @@ def procesar(cid, archivo, file_id):
 
                 cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
 
-                ax.text(0.02, 0.9, f"🔴 Atrasadas: {cant_atrasadas}", transform=ax.transAxes)
+                # 🔥 FIX ROJO ATRASADAS
+                ax.text(
+                    0.02,
+                    0.9,
+                    f"🔴 Atrasadas: {cant_atrasadas}",
+                    transform=ax.transAxes,
+                    fontsize=10,
+                    fontweight="bold",
+                    color="#ef4444",
+                    bbox=dict(facecolor="white", alpha=0.85, edgecolor="#ef4444")
+                )
 
-                pct = round(cumplimiento_global, 1)
-
-                ax.text(0.98, 0.9, f"{pct}%", ha="right", transform=ax.transAxes)
+                ax.text(0.98, 0.9, f"{cumplimiento_global}%", ha="right", transform=ax.transAxes)
 
                 ax.set_title(centro)
                 ax.legend()
@@ -192,21 +175,17 @@ def procesar(cid, archivo, file_id):
             plt.tight_layout(rect=[0, 0, 1, 0.93])
 
             img = f"dashboard_{pagina}.png"
-
             plt.savefig(img, dpi=150, bbox_inches="tight")
-
             plt.close()
 
             send_photo(cid, img)
-
             os.remove(img)
 
             pagina += 1
 
         # =========================
-        # DASHBOARD DIRECCIÓN PRO (FIX BLANCOS)
+        # DASHBOARD DIRECCIÓN
         # =========================
-
         plt.close("all")
 
         plt.style.use("dark_background")
@@ -221,34 +200,22 @@ def procesar(cid, archivo, file_id):
         fig = plt.figure(figsize=(20, 11))
         fig.patch.set_facecolor("#0f172a")
 
-        fig.suptitle(
-            "📊 DASHBOARD DIRECCIÓN EJECUTIVA",
-            fontsize=20,
-            fontweight="bold",
-            color="white"
-        )
+        fig.suptitle("📊 DASHBOARD DIRECCIÓN EJECUTIVA", fontsize=20, fontweight="bold", color="white")
 
-        # =========================
         # DONUT
-        # =========================
         ax1 = plt.subplot2grid((3,4), (0,0), rowspan=2)
-        ax1.set_facecolor("#0f172a")
 
         ax1.pie(
             [cerradas_total, atrasadas_total, abiertas_total],
             labels=["Cerradas", "Atrasadas", "Abiertas"],
             autopct='%1.1f%%',
-            startangle=90,
             colors=["#22c55e", "#ef4444", "#3b82f6"],
-            textprops={'color':"white"},
-            wedgeprops=dict(width=0.4, edgecolor="black")
+            textprops={'color':"white"}
         )
 
         ax1.set_title("Estado General", color="white")
 
-        # =========================
         # KPIs
-        # =========================
         ax2 = plt.subplot2grid((3,4), (0,1), colspan=3)
         ax2.axis("off")
 
@@ -268,32 +235,21 @@ CUMPLIMIENTO: {cumplimiento_global}%
             bbox=dict(facecolor="#1e293b", boxstyle="round,pad=1")
         )
 
-        # =========================
-        # TOP ATRASOS
-        # =========================
+        # ATRASOS
         top_atrasos = atrasadas.groupby(c_centro).size().sort_values().tail(6)
 
         ax3 = plt.subplot2grid((3,4), (1,1), colspan=3)
-        ax3.set_facecolor("#0f172a")
+        ax3.barh(top_atrasos.index.astype(str), top_atrasos.values, color="#ef4444")
+        ax3.set_title("🔴 Centros con más atrasos", color="white")
 
-        if len(top_atrasos) > 0:
-            ax3.barh(top_atrasos.index.astype(str), top_atrasos.values, color="#ef4444")
-            ax3.set_title("🔴 Centros con más atrasos", color="white")
-
-        # =========================
-        # TOP CIERRES
-        # =========================
+        # CIERRES
         top_cierres = df.dropna(subset=[c_fin]).groupby(c_centro).size().sort_values().tail(6)
 
         ax4 = plt.subplot2grid((3,4), (2,0), colspan=2)
-        ax4.set_facecolor("#0f172a")
-
         ax4.bar(top_cierres.index.astype(str), top_cierres.values, color="#22c55e")
         ax4.set_title("🟢 Centros con más cierres", color="white")
 
-        # =========================
         # SEMÁFORO
-        # =========================
         ax5 = plt.subplot2grid((3,4), (2,2), colspan=2)
         ax5.axis("off")
 
@@ -313,13 +269,10 @@ CUMPLIMIENTO: {cumplimiento_global}%
         plt.tight_layout()
 
         img_exec = "dashboard_direccion.png"
-
         plt.savefig(img_exec, dpi=200, bbox_inches="tight")
-
         plt.close()
 
         send_photo(cid, img_exec)
-
         os.remove(img_exec)
 
     except Exception as e:
@@ -327,7 +280,7 @@ CUMPLIMIENTO: {cumplimiento_global}%
         print("ERROR:", e)
 
 # =========================
-# BOT LOOP
+# LOOP
 # =========================
 def main():
 
@@ -335,15 +288,9 @@ def main():
     print("🚀 BOT SAP ACTIVO")
 
     while True:
-
         try:
 
-            r = requests.get(
-                f"{URL}/getUpdates",
-                params={"offset": offset, "timeout": 30},
-                timeout=40
-            )
-
+            r = requests.get(f"{URL}/getUpdates", params={"offset": offset, "timeout": 30})
             data = r.json()
 
             for u in data.get("result", []):
@@ -362,12 +309,10 @@ def main():
                     send_msg(cid, "⌛ Procesando...")
 
                     info = requests.get(f"{URL}/getFile", params={"file_id": file_id}).json()
-
                     file_path = info["result"]["file_path"]
 
                     file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-
-                    file_data = requests.get(file_url, timeout=60)
+                    file_data = requests.get(file_url)
 
                     with open("temp.xlsx", "wb") as f:
                         f.write(file_data.content)
