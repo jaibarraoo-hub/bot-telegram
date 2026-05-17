@@ -19,7 +19,7 @@ if not TOKEN:
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # =========================
-# CONTROL ANTI-DUPLICADOS
+# CONTROL ANTI DUPLICADOS
 # =========================
 PROCESADOS = set()
 
@@ -55,7 +55,7 @@ def procesar(cid, archivo, file_id):
 
     try:
 
-        # 🔥 ANTI DUPLICADO
+        # 🔥 evitar duplicados
         if file_id in PROCESADOS:
             send_msg(cid, "⚠️ Archivo ya procesado")
             return
@@ -127,7 +127,7 @@ def procesar(cid, archivo, file_id):
         ]
 
         # =========================
-        # KPI
+        # KPI GLOBAL
         # =========================
         total_ordenes = len(df)
         cerradas_total = len(df.dropna(subset=[c_fin]))
@@ -139,25 +139,90 @@ def procesar(cid, archivo, file_id):
             1
         ) if total_ordenes > 0 else 0
 
-        # =========================
-        # ZONA HORARIA
-        # =========================
         zona = pytz.timezone("America/Mexico_City")
         fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
 
-        send_msg(cid, "📊 Generando dashboard ejecutivo...")
+        send_msg(cid, "📊 Generando dashboard...")
 
         # =========================
-        # DASHBOARD DIRECCIÓN (ÚNICO)
+        # DASH OPERATIVO (CENTROS)
+        # =========================
+        centros = rep[c_centro].dropna().unique()
+        mid = max(1, math.ceil(len(centros) / 2))
+        paginas = [centros[:mid], centros[mid:]]
+
+        pagina = 1
+
+        for grupo in paginas:
+
+            plt.close("all")
+
+            rows = math.ceil(len(grupo) / 2)
+
+            fig = plt.figure(figsize=(14, rows * 4))
+
+            fig.suptitle(
+                f"Dashboard SAP Operativo | {fecha_revision}",
+                fontsize=14,
+                fontweight="bold"
+            )
+
+            for i, centro in enumerate(grupo, 1):
+
+                temp = rep[rep[c_centro] == centro].copy()
+                temp = temp.sort_values("fecha")
+
+                ax = plt.subplot(rows, 2, i)
+
+                ax.plot(temp["fecha"], temp["lanzadas"], label="Plan")
+                ax.plot(temp["fecha"], temp["cerradas"], label="Real")
+
+                cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
+
+                ax.text(0.02, 0.9, f"🔴 Atrasadas: {cant_atrasadas}", transform=ax.transAxes)
+
+                pct = round(cumplimiento_global, 1)
+
+                ax.text(0.98, 0.9, f"{pct}%", ha="right", transform=ax.transAxes)
+
+                ax.set_title(centro)
+                ax.legend()
+                ax.grid(alpha=0.3)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.93])
+
+            img = f"dashboard_{pagina}.png"
+
+            plt.savefig(img, dpi=150, bbox_inches="tight")
+
+            plt.close()
+
+            send_photo(cid, img)
+
+            os.remove(img)
+
+            pagina += 1
+
+        # =========================
+        # DASHBOARD DIRECCIÓN PRO (FIX BLANCOS)
         # =========================
 
         plt.close("all")
+
+        plt.style.use("dark_background")
+
+        plt.rcParams.update({
+            "text.color": "white",
+            "axes.labelcolor": "white",
+            "xtick.color": "white",
+            "ytick.color": "white"
+        })
 
         fig = plt.figure(figsize=(20, 11))
         fig.patch.set_facecolor("#0f172a")
 
         fig.suptitle(
-            f"📊 DASHBOARD DIRECCIÓN | {fecha_revision}",
+            "📊 DASHBOARD DIRECCIÓN EJECUTIVA",
             fontsize=20,
             fontweight="bold",
             color="white"
@@ -176,7 +241,7 @@ def procesar(cid, archivo, file_id):
             startangle=90,
             colors=["#22c55e", "#ef4444", "#3b82f6"],
             textprops={'color':"white"},
-            wedgeprops=dict(width=0.4)
+            wedgeprops=dict(width=0.4, edgecolor="black")
         )
 
         ax1.set_title("Estado General", color="white")
@@ -191,7 +256,7 @@ def procesar(cid, archivo, file_id):
             0.02,
             0.5,
             f"""
-TOTAL ORDENES: {total_ordenes}
+TOTAL: {total_ordenes}
 CERRADAS: {cerradas_total}
 ATRASADAS: {atrasadas_total}
 ABIERTAS: {abiertas_total}
@@ -214,7 +279,6 @@ CUMPLIMIENTO: {cumplimiento_global}%
         if len(top_atrasos) > 0:
             ax3.barh(top_atrasos.index.astype(str), top_atrasos.values, color="#ef4444")
             ax3.set_title("🔴 Centros con más atrasos", color="white")
-            ax3.tick_params(colors="white")
 
         # =========================
         # TOP CIERRES
@@ -248,14 +312,15 @@ CUMPLIMIENTO: {cumplimiento_global}%
 
         plt.tight_layout()
 
-        img = "dashboard_direccion.png"
+        img_exec = "dashboard_direccion.png"
 
-        plt.savefig(img, dpi=200, bbox_inches="tight")
+        plt.savefig(img_exec, dpi=200, bbox_inches="tight")
+
         plt.close()
 
-        send_photo(cid, img)
+        send_photo(cid, img_exec)
 
-        os.remove(img)
+        os.remove(img_exec)
 
     except Exception as e:
         send_msg(cid, f"❌ ERROR: {e}")
@@ -267,7 +332,7 @@ CUMPLIMIENTO: {cumplimiento_global}%
 def main():
 
     offset = 0
-    print("🚀 BOT DIRECCIÓN ACTIVO")
+    print("🚀 BOT SAP ACTIVO")
 
     while True:
 
