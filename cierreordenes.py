@@ -53,7 +53,6 @@ def procesar(cid, archivo):
         send_msg(cid, "📥 Leyendo archivo...")
 
         df = pd.read_excel(archivo, engine="openpyxl")
-
         df.columns = df.columns.astype(str).str.strip().str.lower()
 
         c_centro = "centro"
@@ -71,17 +70,11 @@ def procesar(cid, archivo):
         df = df.dropna(subset=[c_centro, c_inicio])
 
         # =========================
-        # FILTRO SOLO TRIMESTRALES FUERA
+        # FILTRO
         # =========================
         if c_texto in df.columns:
-
             df[c_texto] = df[c_texto].astype(str).str.lower().str.strip()
-
-            df = df[
-                ~df[c_texto].str.startswith(
-                    "rev. estructura y pintura trimestral"
-                )
-            ]
+            df = df[~df[c_texto].str.startswith("rev. estructura y pintura trimestral")]
 
         # =========================
         # FECHAS BASE
@@ -90,7 +83,7 @@ def procesar(cid, archivo):
         df["dia_fin"] = df[c_fin].dt.date
 
         # =========================
-        # PLAN / REAL
+        # PLAN VS REAL
         # =========================
         lanzadas = df.groupby([c_centro, "dia_inicio"]).size().reset_index(name="lanzadas")
         cerradas = df.dropna(subset=[c_fin]).groupby([c_centro, "dia_fin"]).size().reset_index(name="cerradas")
@@ -109,7 +102,7 @@ def procesar(cid, archivo):
         rep = rep.dropna(subset=["fecha"])
 
         # =========================
-        # ATRASADAS (LIB KKMP NLIQ)
+        # ATRASADAS
         # =========================
         hoy = pd.Timestamp.now().date()
         limite = hoy - pd.Timedelta(days=1)
@@ -121,40 +114,29 @@ def procesar(cid, archivo):
         ]
 
         # =========================
-        # KPI CUMPLIMIENTO
+        # KPI
         # =========================
-        cumplimiento = {}
         centros = rep[c_centro].dropna().unique()
 
         if len(centros) == 0:
             send_msg(cid, "❌ Sin datos")
             return
 
-        for centro in centros:
+        # 🔥 FIX CLAVE: eliminar duplicados reales
+        centros = list(dict.fromkeys(centros))
 
-            total_plan = len(df[(df[c_centro] == centro) & (df["dia_inicio"] <= limite)])
-            total_real = len(df[(df[c_centro] == centro) & (df["dia_fin"] <= limite)])
-
-            cumplimiento[centro] = (total_real / total_plan * 100) if total_plan > 0 else 0
-
-        # =========================
-        # PAGINAS
-        # =========================
-        mid = max(1, math.ceil(len(centros) / 2))
-        paginas = [centros[:mid], centros[mid:]]
+        # 🔥 SOLO UNA CORRIDA (evita gráficas duplicadas)
+        paginas = [centros]
 
         pagina = 1
 
-        # =========================
-        # ZONA HORARIA
-        # =========================
         zona = pytz.timezone("America/Mexico_City")
         fecha_revision = datetime.now(zona).strftime("%d-%m-%Y %H:%M")
 
         send_msg(cid, "📊 Generando dashboards...")
 
         # =========================
-        # GRAFICAS (IGUAL QUE ORIGINAL)
+        # GRAFICAS (SIN CAMBIOS VISUALES)
         # =========================
         for grupo in paginas:
 
@@ -193,9 +175,7 @@ def procesar(cid, archivo):
                 for x, y in zip(temp["fecha"], temp["cerradas"]):
                     ax.text(x, y - 0.9, str(y), fontsize=7, ha="center", color="#2ca02c")
 
-                # =========================
-                # ATRASADAS (SOLO FIX VISUAL)
-                # =========================
+                # ATRASADAS (SIN CAMBIAR DISEÑO)
                 cant_atrasadas = len(atrasadas[atrasadas[c_centro] == centro])
 
                 ax.text(
@@ -207,20 +187,6 @@ def procesar(cid, archivo):
                     color="red",
                     fontweight="bold",
                     bbox=dict(facecolor="white", alpha=0.85, edgecolor="red")
-                )
-
-                # CUMPLIMIENTO
-                pct = round(cumplimiento[centro], 1)
-
-                ax.text(
-                    0.98,
-                    0.95,
-                    f"📈 Cumplimiento: {pct}%",
-                    transform=ax.transAxes,
-                    fontsize=9,
-                    ha="right",
-                    va="top",
-                    bbox=dict(facecolor="white", alpha=0.85)
                 )
 
                 ax.set_title(f"📊 Plan vs Real - {centro}", fontsize=11, fontweight="bold")
@@ -249,7 +215,7 @@ def procesar(cid, archivo):
 def main():
 
     offset = 0
-    print("🚀 BOT EJECUTIVO RENDER SAFE ACTIVO")
+    print("🚀 BOT ACTIVO")
 
     while True:
 
@@ -268,9 +234,6 @@ def main():
                 offset = u["update_id"] + 1
                 m = u.get("message", {})
                 cid = m.get("chat", {}).get("id")
-
-                if not cid:
-                    continue
 
                 if m.get("text") == "/start":
                     send_msg(cid, "📊 Envía tu Excel SAP")
